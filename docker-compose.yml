@@ -1,0 +1,14 @@
+services:
+  lumina-atlas:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "${LUMINA_BIND:-127.0.0.1}:${LUMINA_PORT:-8091}:8090"
+    tmpfs:
+      - /tmp/lumina-auto-hls:size=2g,uid=1000,gid=1000,mode=0750
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8090/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

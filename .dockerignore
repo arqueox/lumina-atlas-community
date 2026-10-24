@@ -1,0 +1,8 @@
+.git
+.env
+android-tv
+*.apk
+*.keystore
+*.jks
+README.md
+docs
