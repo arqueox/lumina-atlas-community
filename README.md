@@ -22,6 +22,8 @@ The server fetches Xtream catalogues and streams on behalf of the browser. Provi
 
 `android-tv/` builds an installable Android TV client. It asks for **your** Lumina Atlas server URL on first launch and stores that URL locally; IPTV credentials remain on the server. It uses Android WebView for the same catalogue and playback UI as the browser app. No private Hub account or prebuilt signed APK is included.
 
+Download the first signed APK from [GitHub Releases](https://github.com/arqueox/lumina-atlas-community/releases/tag/v0.1.0), or build it yourself below. The APK contains no provider credentials. This first version has been built and checked locally; Google TV Streamer 4K hardware testing is still pending.
+
 Build with Android SDK 36 and Java 17:
 
 ```sh
