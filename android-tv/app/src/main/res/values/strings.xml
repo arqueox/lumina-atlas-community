@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">Lumina Atlas</string>
+    <string name="home_redirect_description">Quando o ecrã inicial do Google TV aparece, abre o Lumina Atlas. Desliga aqui para voltar ao Google TV.</string>
+</resources>

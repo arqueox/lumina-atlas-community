@@ -1,0 +1,10 @@
+<resources>
+    <style name="Theme.Noir" parent="@android:style/Theme.Material.NoActionBar.Fullscreen">
+        <item name="android:windowBackground">@color/noir</item>
+        <item name="android:colorBackground">@color/noir</item>
+        <item name="android:navigationBarColor">@color/noir</item>
+        <item name="android:statusBarColor">@color/noir</item>
+        <item name="android:windowShowWallpaper">false</item>
+    </style>
+    <color name="noir">#050505</color>
+</resources>

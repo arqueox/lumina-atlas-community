@@ -1,8 +1,8 @@
 # Lumina Atlas Community
 
-Self-hosted IPTV interface for live TV, films and series, in the Noir design (black, one yellow accent, Anton and JetBrains Mono). The browser app has search, favourites, continue watching, EPG, detail pages, subtitles and seekable HLS conversion for formats a browser cannot play directly. The optional Google TV app displays this same interface and lets the owner select it as the device's Home app where Android permits it.
+Self-hosted IPTV interface for live TV, films and series, in the Noir design (black, one yellow accent, Anton and JetBrains Mono). The browser app has search, favourites, continue watching, EPG, detail pages, subtitles and seekable HLS conversion for formats a browser cannot play directly. The Google TV launcher in `android-tv/` connects to the provider natively and needs no server.
 
-The repository contains no channels, media, provider account, APK or device token. Bring a lawful IPTV subscription (an Xtream Codes account or any M3U playlist) and your own server. This is a standalone community edition derived from a private Lumina Atlas project; it is not a GitHub fork of the private repository.
+The repository contains no channels, media, provider account, APK or device token. Bring a lawful IPTV subscription (an Xtream Codes account or any M3U playlist) and, for the browser app, your own server. This is a standalone community edition derived from a private Lumina Atlas project; it is not a GitHub fork of the private repository.
 
 ## Start the server
 
@@ -34,22 +34,24 @@ Open `http://127.0.0.1:8091` and enter your PIN. The default binding is localhos
 
 The server fetches Xtream catalogues and streams on behalf of the browser. Provider stream limits and codecs still apply. Tesla Theater mode uses `PUBLIC_BASE_URL`; without it, `/theater` reports a configuration error.
 
-## Google TV Streamer 4K
+## Google TV launcher
 
-`android-tv/` builds an installable Android TV client. Its first screen, in the same Noir design, asks for **your** Lumina Atlas server address and stores it locally. After entering the PIN, connect the IPTV source from **Ligar fonte** in the app. IPTV credentials remain on your server. The client uses Android WebView for the same catalogue and playback UI as the browser app. No private Hub account or prebuilt signed APK is included.
+`android-tv/` is a native Google TV launcher (Kotlin, Jetpack Compose, Media3 ExoPlayer) in the same Noir design. It does **not** need the server above: the TV talks straight to your IPTV provider.
 
-Build the APK yourself below; the [0.1.0 release](https://github.com/arqueox/lumina-atlas-community/releases/tag/v0.1.0) predates the Noir design and M3U support. APKs contain no provider credentials.
+- **Your own source.** On first launch the app opens **Ligar fonte**. Paste an Xtream link (`get.php?username=…&password=…` or `user:pass@host`) or any M3U/M3U8 address, or choose a `.m3u` playlist or `.url` shortcut on the device. It is stored only on that TV. The app ships with no link, account or token, and asks every user for their own.
+- **Catalogue.** Direto by channel group, Filmes and Séries by category with details, seasons and episodes (Xtream accounts also give synopses and backdrops). Providers that mark Portuguese sections with "█ … █" rows get Generalistas, Desporto and Filmes, as in the web app.
+- **Player.** ExoPlayer with FFmpeg audio decoders for MP2/AC3/EAC3/DTS channels. ▲/▼ changes channel, ◀/▶ seeks −10 s/+30 s, OK pauses; film positions are remembered.
+- **Launcher.** The home lists the TV's apps. With notification access granted (rail › *A ver agora*, or `adb shell cmd notification allow_listener dev.lumina.atlas/dev.lumina.atlas.MediaWatcher`), an *A ver agora* row shows the last title played in each streaming app, read from Android media sessions; the app reads no notifications.
+- **Home button.** Google TV keeps its own launcher on Home. Turn on the optional accessibility service *Lumina Atlas: botão Home* (rail › *Botão Home*) to come back to Lumina Atlas whenever the Google TV home appears; turn it off to restore the stock behaviour.
 
 Build with Android SDK 36 and Java 17:
 
 ```sh
 cd android-tv
-./gradlew assembleDebug
+./gradlew assembleRelease   # unsigned unless android-tv/keystore.properties exists (see app/build.gradle.kts)
 ```
 
-Install `app/build/outputs/apk/debug/app-debug.apk` on the TV. Enter the HTTPS URL of your server. The setup screen includes **Botão Home** (Android Home app settings) and **Acessibilidade** shortcuts. Select Lumina Atlas as the default Home app if your Google TV firmware offers that choice. The remote Home button is controlled by Android; an ordinary app cannot capture it while another launcher is selected. Press Menu inside Lumina Atlas to change the server URL. Back returns from web history or opens setup. You can restore the original launcher from Android's Home app settings.
-
-Some Google TV firmware may hide or block third-party Home selection. The Accessibility settings shortcut is for the device's own accessibility controls; this app does not install an accessibility service or remap remote keys. The Android client uses the web player, so its codec and remote behaviour may differ from a native TV player.
+Install the APK on the TV with `adb install`. The [0.1.0 release](https://github.com/arqueox/lumina-atlas-community/releases/tag/v0.1.0) was the earlier WebView client, signed with a different key: uninstall it before installing 0.3.0.
 
 ## Development
 
@@ -61,4 +63,4 @@ The tests use fake Xtream and M3U servers: provider parsing, playlist parsing, c
 
 ## Fonts
 
-The Android TV app bundles Anton and JetBrains Mono, and the web app loads them and Instrument Serif from Google Fonts. All three are under the SIL Open Font License 1.1.
+The Google TV launcher bundles Anton, JetBrains Mono and Instrument Serif; the web app loads them from Google Fonts. All three are under the SIL Open Font License 1.1.
