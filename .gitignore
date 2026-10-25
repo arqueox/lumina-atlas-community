@@ -1,6 +1,11 @@
 .env
 *.apk
 *.idsig
+*.url
+*.m3u
+*.m3u8
+data/*
+!data/.gitkeep
 *.keystore
 *.jks
 android-tv/.gradle/

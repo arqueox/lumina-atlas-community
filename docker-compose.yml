@@ -5,6 +5,8 @@ services:
     env_file: .env
     ports:
       - "${LUMINA_BIND:-127.0.0.1}:${LUMINA_PORT:-8091}:8090"
+    volumes:
+      - ./data:/data
     tmpfs:
       - /tmp/lumina-auto-hls:size=2g,uid=1000,gid=1000,mode=0750
     healthcheck:

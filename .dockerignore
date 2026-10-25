@@ -4,5 +4,9 @@ android-tv
 *.apk
 *.keystore
 *.jks
+*.url
+*.m3u
+*.m3u8
+data
 README.md
 docs

@@ -8,12 +8,24 @@ const crypto = require('node:crypto');
 const { spawn } = require('node:child_process');
 const { Readable } = require('node:stream');
 const { pipeline } = require('node:stream/promises');
+const { parseProviderUrl, providerConfig, providerReady } = require('./provider-config');
+const { parsePlaylist } = require('./m3u');
 
 const PORT = Number(process.env.PORT || 8090);
 const APP_PIN = String(process.env.APP_PIN || '');
-const XTREAM_BASE = String(process.env.XTREAM_BASE || '').replace(/\/$/, '');
-const XTREAM_USERNAME = String(process.env.XTREAM_USERNAME || '');
-const XTREAM_PASSWORD = String(process.env.XTREAM_PASSWORD || '');
+const PROVIDER_FILE = String(process.env.PROVIDER_FILE || '/data/provider.url');
+// The provider: an Xtream account or a generic M3U playlist (see provider-config.js). It can change at runtime.
+let provider = null, XTREAM_BASE = '', XTREAM_USERNAME = '', XTREAM_PASSWORD = '';
+let playlist = null, playlistAt = 0, playlistLoading = null;
+function applyProvider(next) {
+  provider = next;
+  const x = next?.type === 'xtream' ? next : {};
+  XTREAM_BASE = x.base || ''; XTREAM_USERNAME = x.username || ''; XTREAM_PASSWORD = x.password || '';
+  playlist = null; playlistAt = 0; playlistLoading = null;
+}
+try { applyProvider(providerConfig()); }
+catch (error) { console.error(error.message); process.exit(1); }
+const isM3u = () => provider?.type === 'm3u';
 const SESSION_SECRET = String(process.env.SESSION_SECRET || '');
 const SESSION_DAYS = Math.max(1, Number(process.env.SESSION_DAYS || 30));
 const COOKIE_SECURE = process.env.COOKIE_SECURE !== 'false';
@@ -32,8 +44,8 @@ const segmentWaiters = [];
 let activeSegments = 0;
 const subtitleCache = new Map();
 
-if (!APP_PIN || !XTREAM_BASE || !XTREAM_USERNAME || !XTREAM_PASSWORD || !SESSION_SECRET) {
-  console.error('Faltam APP_PIN, XTREAM_BASE, XTREAM_USERNAME, XTREAM_PASSWORD ou SESSION_SECRET.');
+if (!APP_PIN || !SESSION_SECRET) {
+  console.error('Faltam APP_PIN ou SESSION_SECRET.');
   process.exit(1);
 }
 
@@ -48,7 +60,68 @@ const loginFailures=[];
 function loginLocked(now){while(loginFailures.length&&now-loginFailures[0]>86400000)loginFailures.shift();return loginFailures.filter(at=>now-at<3600000).length>=10||loginFailures.length>=30}
 function validSession(req) { const raw=cookies(req).lumina_auto_session||''; const [p,s]=raw.split('.'); if(!p||!s) return false; const expected=sign(p); if(s.length!==expected.length||!crypto.timingSafeEqual(Buffer.from(s),Buffer.from(expected))) return false; try{return JSON.parse(Buffer.from(p,'base64url')).exp>Date.now()}catch{return false} }
 function safeEqual(a,b) { const x=Buffer.from(String(a)), y=Buffer.from(String(b)); return x.length===y.length && crypto.timingSafeEqual(x,y); }
+async function bodyText(req, max) { const chunks=[]; let size=0; for await(const c of req){size+=c.length; if(size>max) throw Object.assign(new Error('Ficheiro demasiado grande'),{status:413}); chunks.push(c)} return Buffer.concat(chunks).toString('utf8'); }
 async function bodyJson(req) { const chunks=[]; for await(const c of req){chunks.push(c); if(chunks.reduce((n,b)=>n+b.length,0)>8192) throw new Error('pedido demasiado grande')} return JSON.parse(Buffer.concat(chunks).toString('utf8')||'{}'); }
+
+async function saveProvider(input) {
+  const target = path.resolve(PROVIDER_FILE);
+  const parsed = parseProviderUrl(input, target);
+  await fsp.mkdir(path.dirname(target), { recursive: true });
+  const temporary = `${target}.${crypto.randomBytes(8).toString('hex')}.tmp`;
+  try {
+    await fsp.writeFile(temporary, String(input).trim() + '\n', { mode: 0o600, flag: 'wx' });
+    await fsp.rename(temporary, target);
+  } catch (error) {
+    await fsp.rm(temporary, { force: true }).catch(() => {});
+    throw error;
+  }
+  for (const stream of streams.values()) stream.proc.kill('SIGTERM');
+  for (const proc of vodProcesses) proc.kill('SIGTERM');
+  streams.clear();
+  vodStreams.clear();
+  subtitleCache.clear();
+  imageSources.clear();
+  applyProvider(parsed);
+}
+
+// Generic M3U: the playlist is fetched (or read from its file) and kept for 30 minutes.
+const PLAYLIST_TTL = 30 * 60000, PLAYLIST_MAX = 64 * 1024 * 1024;
+async function loadPlaylistText(source) {
+  if (source.file) return fsp.readFile(source.file, 'utf8');
+  const url = new URL(source.url);
+  const headers = { 'user-agent': 'VLC/3.0.20 LibVLC/3.0.20' };
+  if (url.username) {
+    headers.authorization = 'Basic ' + Buffer.from(`${decodeURIComponent(url.username)}:${decodeURIComponent(url.password)}`).toString('base64');
+    url.username = ''; url.password = '';
+  }
+  const r = await fetch(url, { headers, signal: AbortSignal.timeout(60000) });
+  if (!r.ok) throw new Error(`Lista M3U respondeu HTTP ${r.status}`);
+  if (Number(r.headers.get('content-length') || 0) > PLAYLIST_MAX) throw new Error('Lista M3U demasiado grande');
+  const text = await r.text();
+  if (text.length > PLAYLIST_MAX) throw new Error('Lista M3U demasiado grande');
+  return text;
+}
+async function m3u() {
+  if (playlist && Date.now() - playlistAt < PLAYLIST_TTL) return playlist;
+  if (!playlistLoading) {
+    const source = provider;
+    playlistLoading = loadPlaylistText(source).then(text => {
+      const parsed = parsePlaylist(text);
+      if (provider === source) { playlist = parsed; playlistAt = Date.now(); }
+      return parsed;
+    }).finally(() => { if (provider === source) playlistLoading = null; });
+  }
+  try { return await playlistLoading; }
+  catch (error) { if (playlist) return playlist; throw error; }
+}
+async function sourceUrl(kind, id, ext) {
+  if (!isM3u()) return kind === 'movie' ? movieUrl(id, ext) : kind === 'series' ? episodeUrl(id, ext) : liveUrl(id, ext);
+  const p = await m3u();
+  const x = kind === 'movie' ? p.movies[Number(id) - 1] : kind === 'series' ? p.episodes.get(Number(id)) : p.live[Number(id) - 1];
+  if (!x) throw Object.assign(new Error('Conteúdo inexistente'), { code: 'ENOENT' });
+  return x.url;
+}
+const cleanExt = ext => String(ext || 'mp4').replace(/[^a-z0-9]/gi, '');
 
 function xtreamUrl(action='', extra={}) { const u=new URL(`${XTREAM_BASE}/player_api.php`); u.searchParams.set('username',XTREAM_USERNAME);u.searchParams.set('password',XTREAM_PASSWORD);if(action)u.searchParams.set('action',action);for(const [k,v] of Object.entries(extra))u.searchParams.set(k,String(v));return u; }
 async function xtream(action='', extra={}) { const r=await fetch(xtreamUrl(action,extra),{headers:{'user-agent':'VLC/3.0.20 LibVLC/3.0.20'},signal:AbortSignal.timeout(30000)}); if(!r.ok)throw new Error(`Fornecedor respondeu HTTP ${r.status}`); return r.json(); }
@@ -61,6 +134,13 @@ async function categories(action){const list=await xtream(action).catch(()=>[]);
 function b64(v){try{return Buffer.from(String(v||''),'base64').toString('utf8')}catch{return String(v||'')}}
 
 async function channels(){
+  if(isM3u()){
+    const p=await m3u();
+    return {channels:p.live.map(x=>{
+      if(x.logo)imageSources.set(`live:${x.id}`,x.logo);
+      return {streamId:x.id,name:x.name,logo:x.logo?`/api/logo/live/${x.id}`:'',group:x.group,epgChannelId:x.tvgId,url:`/api/stream/${x.id}/index.m3u8`,sourceExtension:x.ext};
+    })};
+  }
   const [list,cats]=await Promise.all([
     xtream('get_live_streams'),
     categories('get_live_categories')
@@ -85,11 +165,11 @@ async function channels(){
     })
   };
 }
-async function movies(){const [list,cats]=await Promise.all([xtream('get_vod_streams'),categories('get_vod_categories')]);return {movies:(Array.isArray(list)?list:[]).filter(x=>Number(x.is_adult)!==1&&!/adult/i.test(cats.get(String(x.category_id))||'')).map(x=>({streamId:Number(x.stream_id),name:x.name||'',poster:x.stream_icon||'',rating:Number(x.rating_5based||0),category:cats.get(String(x.category_id))||'',genre:String(x.genre||''),url:`/api/media/movie/${x.stream_id}.${String(x.container_extension||'mp4').replace(/[^a-z0-9]/gi,'')}`}))}}
-async function series(){const [list,cats]=await Promise.all([xtream('get_series'),categories('get_series_categories')]);return {series:(Array.isArray(list)?list:[]).map(x=>({seriesId:Number(x.series_id),name:x.name||'',poster:x.cover||'',rating:Number(x.rating_5based||0),category:cats.get(String(x.category_id))||'',genre:String(x.genre||''),plot:String(x.plot||'').slice(0,500)}))}}
-async function epg(id){const data=await xtream('get_short_epg',{stream_id:id,limit:8});return {streamId:String(id),programmes:(data.epg_listings||[]).map(x=>({start:x.start,end:x.end,title:b64(x.title),description:b64(x.description)}))}}
-async function movieInfo(id){const d=await xtream('get_vod_info',{vod_id:id});const i=d.info||{};return {id:Number(id),plot:i.plot||i.description||'',cast:i.cast||i.actors||'',director:i.director||'',genre:i.genre||'',duration:i.duration||'',releaseDate:i.releasedate||i.release_date||'',rating:String(i.rating||''),backdrop:Array.isArray(i.backdrop_path)?i.backdrop_path[0]||'':i.backdrop_path||i.cover_big||''}}
-async function seriesInfo(id){const d=await xtream('get_series_info',{series_id:id});const i=d.info||{}, seasons={};for(const [season,list] of Object.entries(d.episodes||{}))seasons[season]=(Array.isArray(list)?list:[]).map(x=>({id:String(x.id),num:Number(x.episode_num||0),title:x.title||'',url:`/api/media/series/${x.id}.${String(x.container_extension||'mp4').replace(/[^a-z0-9]/gi,'')}`}));return {name:i.name||'',seasons,plot:i.plot||'',cast:i.cast||'',director:i.director||'',genre:i.genre||'',duration:i.duration||'',releaseDate:i.releaseDate||i.release_date||'',rating:String(i.rating||''),backdrop:Array.isArray(i.backdrop_path)?i.backdrop_path[0]||'':i.backdrop_path||''}}
+async function movies(){if(isM3u())return {movies:(await m3u()).movies.map(x=>({streamId:x.id,name:x.name,poster:x.poster,rating:0,category:x.category,genre:'',url:`/api/media/movie/${x.id}.${cleanExt(x.ext)}`}))};const [list,cats]=await Promise.all([xtream('get_vod_streams'),categories('get_vod_categories')]);return {movies:(Array.isArray(list)?list:[]).filter(x=>Number(x.is_adult)!==1&&!/adult/i.test(cats.get(String(x.category_id))||'')).map(x=>({streamId:Number(x.stream_id),name:x.name||'',poster:x.stream_icon||'',rating:Number(x.rating_5based||0),category:cats.get(String(x.category_id))||'',genre:String(x.genre||''),url:`/api/media/movie/${x.stream_id}.${String(x.container_extension||'mp4').replace(/[^a-z0-9]/gi,'')}`}))}}
+async function series(){if(isM3u())return {series:(await m3u()).series.map(x=>({seriesId:x.id,name:x.name,poster:x.poster,rating:0,category:x.category,genre:'',plot:''}))};const [list,cats]=await Promise.all([xtream('get_series'),categories('get_series_categories')]);return {series:(Array.isArray(list)?list:[]).map(x=>({seriesId:Number(x.series_id),name:x.name||'',poster:x.cover||'',rating:Number(x.rating_5based||0),category:cats.get(String(x.category_id))||'',genre:String(x.genre||''),plot:String(x.plot||'').slice(0,500)}))}}
+async function epg(id){if(isM3u())return {streamId:String(id),programmes:[]};const data=await xtream('get_short_epg',{stream_id:id,limit:8});return {streamId:String(id),programmes:(data.epg_listings||[]).map(x=>({start:x.start,end:x.end,title:b64(x.title),description:b64(x.description)}))}}
+async function movieInfo(id){if(isM3u()){const x=(await m3u()).movies[Number(id)-1];return {id:Number(id),plot:'',cast:'',director:'',genre:x?.category||'',duration:'',releaseDate:'',rating:'',backdrop:''}}const d=await xtream('get_vod_info',{vod_id:id});const i=d.info||{};return {id:Number(id),plot:i.plot||i.description||'',cast:i.cast||i.actors||'',director:i.director||'',genre:i.genre||'',duration:i.duration||'',releaseDate:i.releasedate||i.release_date||'',rating:String(i.rating||''),backdrop:Array.isArray(i.backdrop_path)?i.backdrop_path[0]||'':i.backdrop_path||i.cover_big||''}}
+async function seriesInfo(id){if(isM3u()){const x=(await m3u()).series[Number(id)-1];if(!x)throw Object.assign(new Error('Série inexistente'),{code:'ENOENT'});const seasons={};for(const [season,list] of Object.entries(x.seasons))seasons[season]=list.map(e=>({id:String(e.id),num:e.num,title:e.title,url:`/api/media/series/${e.id}.${cleanExt(e.ext)}`}));return {name:x.name,seasons,plot:'',cast:'',director:'',genre:x.category||'',duration:'',releaseDate:'',rating:'',backdrop:''}}const d=await xtream('get_series_info',{series_id:id});const i=d.info||{}, seasons={};for(const [season,list] of Object.entries(d.episodes||{}))seasons[season]=(Array.isArray(list)?list:[]).map(x=>({id:String(x.id),num:Number(x.episode_num||0),title:x.title||'',url:`/api/media/series/${x.id}.${String(x.container_extension||'mp4').replace(/[^a-z0-9]/gi,'')}`}));return {name:i.name||'',seasons,plot:i.plot||'',cast:i.cast||'',director:i.director||'',genre:i.genre||'',duration:i.duration||'',releaseDate:i.releaseDate||i.release_date||'',rating:String(i.rating||''),backdrop:Array.isArray(i.backdrop_path)?i.backdrop_path[0]||'':i.backdrop_path||''}}
 
 async function proxyLogo(res,id){
   const source=imageSources.get(`live:${id}`);
@@ -199,11 +279,6 @@ function runProcess(command,args,timeout=45000,maxBytes=12*1024*1024){
   });
 }
 
-function subtitleUpstream(kind,id,ext){
-  return kind==='movie'
-    ?movieUrl(id,ext)
-    :episodeUrl(id,ext);
-}
 
 async function extractSubtitle(kind,id,ext){
   const key=`${kind}:${id}:${ext}`;
@@ -212,7 +287,7 @@ async function extractSubtitle(kind,id,ext){
     return subtitleCache.get(key);
   }
 
-  const upstream=subtitleUpstream(kind,id,ext);
+  const upstream=await sourceUrl(kind,id,ext);
 
   const probeBuffer=await runProcess(FFPROBE,[
     '-v','error',
@@ -289,7 +364,7 @@ async function serveSubtitle(res,kind,id,ext){
   });
 }
 
-async function proxyMedia(req,res,kind,id,ext){const upstream=kind==='movie'?movieUrl(id,ext):episodeUrl(id,ext);const headers={'user-agent':'VLC/3.0.20 LibVLC/3.0.20'};if(req.headers.range)headers.range=req.headers.range;const r=await fetch(upstream,{headers,signal:AbortSignal.timeout(30000)});if(!r.ok&&r.status!==206)throw new Error(`Fornecedor respondeu HTTP ${r.status}`);const out={};for(const h of ['content-type','content-length','content-range']){const v=r.headers.get(h);if(v)out[h]=v}if(r.headers.get('content-range')||r.headers.get('accept-ranges'))out['accept-ranges']='bytes';out['cache-control']='private, max-age=60';out['x-content-type-options']='nosniff';res.writeHead(r.status,out);if(r.body)await pipeline(Readable.fromWeb(r.body),res);else res.end()}
+async function proxyMedia(req,res,kind,id,ext){const upstream=await sourceUrl(kind,id,ext);const headers={'user-agent':'VLC/3.0.20 LibVLC/3.0.20'};if(req.headers.range)headers.range=req.headers.range;const r=await fetch(upstream,{headers,signal:AbortSignal.timeout(30000)});if(!r.ok&&r.status!==206)throw new Error(`Fornecedor respondeu HTTP ${r.status}`);const out={};for(const h of ['content-type','content-length','content-range']){const v=r.headers.get(h);if(v)out[h]=v}if(r.headers.get('content-range')||r.headers.get('accept-ranges'))out['accept-ranges']='bytes';out['cache-control']='private, max-age=60';out['x-content-type-options']='nosniff';res.writeHead(r.status,out);if(r.body)await pipeline(Readable.fromWeb(r.body),res);else res.end()}
 
 function vodKey(kind,id,ext){return `${kind}-${id}-${ext.toLowerCase()}`}
 async function probeVod(source){
@@ -302,7 +377,7 @@ async function probeVod(source){
   });
 }
 async function startVod(kind,id,ext,key){
-  const source=kind==='movie'?movieUrl(id,ext):episodeUrl(id,ext);
+  const source=await sourceUrl(kind,id,ext);
   const duration=await probeVod(source);
   const dir=path.join(VOD_ROOT,key);
   await fsp.rm(dir,{recursive:true,force:true});await fsp.mkdir(dir,{recursive:true});
@@ -354,7 +429,7 @@ async function ensureVodSegment(entry,index){
 setInterval(async()=>{const now=Date.now();for(const [key,entry] of vodStreams){if(entry.promise||entry.jobs?.size||now-entry.lastTouch<600000)continue;vodStreams.delete(key);await fsp.rm(entry.dir,{recursive:true,force:true}).catch(()=>{})}},60000).unref();
 
 function streamKey(id){return String(id).replace(/[^0-9]/g,'')}
-async function ensureStream(id){const key=streamKey(id);if(!key)throw new Error('Canal inválido');const existing=streams.get(key);if(existing&&existing.proc.exitCode===null){existing.lastTouch=Date.now();return key}const meta=(await xtream('get_live_streams')).find(x=>String(x.stream_id)===key);if(!meta)throw new Error('Canal inexistente');const dir=path.join(HLS_ROOT,key);await fsp.rm(dir,{recursive:true,force:true});await fsp.mkdir(dir,{recursive:true});const output=path.join(dir,'index.m3u8');const input=liveUrl(key,meta.container_extension||'ts');const args=['-hide_banner','-loglevel','warning','-nostdin','-reconnect','1','-reconnect_streamed','1','-reconnect_delay_max','5','-i',input,'-map','0:v:0?','-map','0:a:0?','-c:v',VIDEO_CODEC];if(VIDEO_CODEC!=='copy')args.push('-preset','veryfast','-tune','zerolatency','-pix_fmt','yuv420p');args.push('-c:a','aac','-b:a','128k','-ac','2','-f','hls','-hls_time','4','-hls_list_size','8','-hls_flags','delete_segments+append_list+independent_segments','-hls_segment_filename',path.join(dir,'seg-%06d.ts'),output);const proc=spawn(FFMPEG,args,{stdio:['ignore','ignore','pipe']});const entry={proc,lastTouch:Date.now(),stderr:''};streams.set(key,entry);proc.stderr.on('data',d=>entry.stderr=(entry.stderr+d.toString()).slice(-3000));proc.on('exit',()=>setTimeout(()=>streams.get(key)?.proc===proc&&streams.delete(key),1000));const deadline=Date.now()+15000;while(Date.now()<deadline){if(proc.exitCode!==null)throw new Error(entry.stderr||'FFmpeg terminou inesperadamente');if(fs.existsSync(output))return key;await new Promise(r=>setTimeout(r,250))}proc.kill('SIGTERM');throw new Error('O canal demorou demasiado a iniciar')}
+async function ensureStream(id){const key=streamKey(id);if(!key)throw new Error('Canal inválido');const existing=streams.get(key);if(existing&&existing.proc.exitCode===null){existing.lastTouch=Date.now();return key}let input;if(isM3u())input=await sourceUrl('live',key);else{const meta=(await xtream('get_live_streams')).find(x=>String(x.stream_id)===key);if(!meta)throw new Error('Canal inexistente');input=liveUrl(key,meta.container_extension||'ts')}const dir=path.join(HLS_ROOT,key);await fsp.rm(dir,{recursive:true,force:true});await fsp.mkdir(dir,{recursive:true});const output=path.join(dir,'index.m3u8');const args=['-hide_banner','-loglevel','warning','-nostdin','-reconnect','1','-reconnect_streamed','1','-reconnect_delay_max','5','-i',input,'-map','0:v:0?','-map','0:a:0?','-c:v',VIDEO_CODEC];if(VIDEO_CODEC!=='copy')args.push('-preset','veryfast','-tune','zerolatency','-pix_fmt','yuv420p');args.push('-c:a','aac','-b:a','128k','-ac','2','-f','hls','-hls_time','4','-hls_list_size','8','-hls_flags','delete_segments+append_list+independent_segments','-hls_segment_filename',path.join(dir,'seg-%06d.ts'),output);const proc=spawn(FFMPEG,args,{stdio:['ignore','ignore','pipe']});const entry={proc,lastTouch:Date.now(),stderr:''};streams.set(key,entry);proc.stderr.on('data',d=>entry.stderr=(entry.stderr+d.toString()).slice(-3000));proc.on('exit',()=>setTimeout(()=>streams.get(key)?.proc===proc&&streams.delete(key),1000));const deadline=Date.now()+15000;while(Date.now()<deadline){if(proc.exitCode!==null)throw new Error(entry.stderr||'FFmpeg terminou inesperadamente');if(fs.existsSync(output))return key;await new Promise(r=>setTimeout(r,250))}proc.kill('SIGTERM');throw new Error('O canal demorou demasiado a iniciar')}
 setInterval(()=>{const now=Date.now();for(const [key,s] of streams)if(now-s.lastTouch>IDLE_SECONDS*1000){s.proc.kill('SIGTERM');streams.delete(key)}},15000).unref();
 
 async function serveFile(res,file,cache='public, max-age=300'){const stat=await fsp.stat(file);if(!stat.isFile())throw new Error('not file');res.writeHead(200,{'content-type':MIME[path.extname(file)]||'application/octet-stream','content-length':stat.size,'cache-control':cache,'x-content-type-options':'nosniff'});fs.createReadStream(file).pipe(res)}
@@ -405,6 +480,25 @@ document.getElementById('activate').onclick=()=>{
 </script>
 </body>
 </html>`;return send(res,200,page,{'content-type':'text/html; charset=utf-8','cache-control':'no-store'})}if(u.pathname==='/theater'){if(!PUBLIC_BASE_URL)return send(res,503,'Configura PUBLIC_BASE_URL para usar Tesla Theater');const destination=`${PUBLIC_BASE_URL}/?theater=1`;const youtube='https://www.youtube.com/redirect?q='+encodeURIComponent(destination);res.writeHead(302,{'location':youtube,'cache-control':'no-store'});return res.end()}if(u.pathname==='/health')return json(res,200,{ok:true,service:'lumina-atlas',streams:streams.size});if(u.pathname==='/api/login'&&req.method==='POST'){if(loginLocked(Date.now()))return json(res,429,{error:'Demasiadas tentativas. Tenta mais tarde.'});const b=await bodyJson(req);if(!safeEqual(b.pin||'',APP_PIN)){loginFailures.push(Date.now());return json(res,401,{error:'PIN incorreto'})}const cookie=`lumina_auto_session=${encodeURIComponent(makeSession())}; Path=/; HttpOnly; ${COOKIE_SECURE?'Secure; ':''}SameSite=Strict; Max-Age=${SESSION_DAYS*86400}`;return json(res,200,{ok:true},{'set-cookie':cookie})}if(u.pathname==='/api/session')return validSession(req)?json(res,200,{ok:true}):json(res,401,{error:'Sessão necessária'});if(u.pathname.startsWith('/api/')&&!validSession(req))return json(res,401,{error:'Sessão necessária'});
+  if(u.pathname==='/api/provider'&&req.method==='GET'){
+    const host=XTREAM_BASE?new URL(XTREAM_BASE).host:provider?.url?new URL(provider.url).host:provider?.file?'ficheiro':'';
+    return json(res,200,{configured:providerReady(provider),type:provider?.type||'',host});
+  }
+  const providerError=error=>/URL IPTV|username e password|endereço HTTP|M3U/.test(error.message);
+  if(u.pathname==='/api/provider/playlist'&&req.method==='POST'){
+    if(process.env.IPTV_URL||process.env.IPTV_URL_FILE)return json(res,409,{error:'O fornecedor está definido no ambiente do servidor'});
+    const text=await bodyText(req,PLAYLIST_MAX).catch(error=>{if(error.status===413)return null;throw error});
+    if(text===null)return json(res,413,{error:'Lista M3U demasiado grande (máximo 64 MB)'});
+    try{await saveProvider(text);return json(res,200,{ok:true})}
+    catch(error){if(providerError(error))return json(res,400,{error:error.message});throw error}
+  }
+  if(u.pathname==='/api/provider'&&req.method==='POST'){
+    if(process.env.IPTV_URL||process.env.IPTV_URL_FILE)return json(res,409,{error:'O fornecedor está definido no ambiente do servidor'});
+    const data=await bodyJson(req);
+    try{await saveProvider(data.url);return json(res,200,{ok:true})}
+    catch(error){if(providerError(error))return json(res,400,{error:error.message});throw error}
+  }
+  if(u.pathname.startsWith('/api/')&&!providerReady(provider))return json(res,409,{error:'Configura um URL IPTV nas definições'});
   if(u.pathname==='/api/catalog')return json(res,200,{...(await channels()),...(await movies()),...(await series())});
   let logoMatch=u.pathname.match(/^\/api\/logo\/live\/(\d+)$/);
   if(logoMatch)return proxyLogo(res,logoMatch[1]);

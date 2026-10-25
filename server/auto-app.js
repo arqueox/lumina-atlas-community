@@ -1,10 +1,10 @@
-/* Lumina Atlas — the browser app (served as /app.js). Same catalogue, playback and session as Lumina Auto;
-   the screens follow the Atlas app: a "watch again" hero and big-number tiles on the home, rows of posters,
-   segmented controls for sections and genres, Atlas detail and search sheets. Styles in styles.css. */
+/* Lumina Atlas — the browser app (served as /app.js). Catalogue, playback and session come from the server; the
+   screens follow the Noir design: a left rail, Anton titles over mono kickers, a "watch again" hero, numbered
+   rows of posters, segmented controls for sections and genres. Styles in styles.css. */
 (function(){
   'use strict';
   const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
-  const state={view:'home',channels:[],movies:[],series:[],hls:null,liveSection:'Generalistas',genre:{movie:null,series:null},limit:{movie:240,series:240}};
+  const state={view:'home',authenticated:false,channels:[],sections:[],movies:[],series:[],hls:null,liveSection:'Generalistas',genre:{movie:null,series:null},limit:{movie:240,series:240}};
   const store={get(k,f=[]){try{return JSON.parse(localStorage.getItem('lumina_atlas_'+k))??f}catch{return f}},set(k,v){try{localStorage.setItem('lumina_atlas_'+k,JSON.stringify(v))}catch{}}};
   const favs=()=>new Set(store.get('favorites',[]));
   const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -35,6 +35,14 @@
       if(section)result.push({...channel,_luminaSection:section});
     }
     return result;
+  }
+  // Providers without those header rows (any other Xtream account or M3U playlist): one section per group.
+  function organiseChannels(channels){
+    const marked=organisePortugueseChannels(channels);
+    if(marked.length)return {channels:marked,sections:CHANNEL_SECTIONS.filter(s=>marked.some(c=>c._luminaSection===s))};
+    const sections=[];
+    const result=channels.map(c=>{const s=String(c.group||'').trim()||'Canais';if(!sections.includes(s))sections.push(s);return {...c,_luminaSection:s}});
+    return {channels:result,sections};
   }
 
   // --- Genres for films and series ------------------------------------------------------------------
@@ -68,21 +76,31 @@
   function busy(v){$('#loading').classList.toggle('hidden',!v);$('#grid').classList.toggle('hidden',v)}
   function setStatus(text,online){$('#status').classList.toggle('online',online);$('#status span').textContent=text}
   function loginScreen(message){
+    state.authenticated=false;
     $('#grid').innerHTML='';$('#tabs').classList.add('hidden');$('#empty').classList.remove('hidden');
-    $('#empty .welcome-tile p').textContent=message||'Introduz o PIN privado para entrar.';
+    $('#empty .welcome-tile .serif').textContent=message||'Introduz o PIN privado para entrar.';
+    $('#emptySetup').textContent='Introduzir PIN';
     $('#viewTitle').textContent='Bem-vindo';setStatus('Protegida por PIN',false);
+  }
+  function providerScreen(){
+    $('#grid').innerHTML='';$('#tabs').classList.add('hidden');$('#empty').classList.remove('hidden');
+    $('#empty .welcome-tile .serif').textContent='Indica o URL da tua conta Xtream ou de uma lista M3U, ou escolhe o ficheiro.';
+    $('#emptySetup').textContent='Configurar fornecedor';
+    $('#viewTitle').textContent='Fornecedor IPTV';setStatus('A aguardar configuração',false);
   }
   async function bootstrap(){
     busy(true);
     try{
       await api('/api/session');
+      state.authenticated=true;
       const data=await api('/api/catalog');
-      state.channels=organisePortugueseChannels(data.channels||[]);
+      const live=organiseChannels(data.channels||[]);
+      state.channels=live.channels;state.sections=live.sections;
       state.movies=data.movies||[];state.series=data.series||[];
       $('#empty').classList.add('hidden');
       setStatus(`Ligada ao servidor · ${number(state.channels.length)} canais`,true);
-      render();
-    }catch(e){loginScreen(e.status===401?undefined:e.message)}
+      render();window.scrollTo({top:0});
+    }catch(e){if(e.status===409&&state.authenticated)providerScreen();else loginScreen(e.status===401?undefined:e.message)}
     finally{busy(false)}
   }
 
@@ -112,6 +130,7 @@
 
   // --- Views ---------------------------------------------------------------------------------------
   const TITLES={home:'Início',live:'Direto',movies:'Filmes',series:'Séries',favorites:'Favoritos'};
+  const KICKERS={home:['01','Lumina Atlas'],live:['02','Em direto'],movies:['03','Catálogo'],series:['04','Catálogo'],favorites:['05','A tua lista']};
   function tabsHTML(items,current,attr){return items.map(([value,label,count])=>`<button class="seg ${value===current?'active':''}" ${attr}="${esc(value)}">${esc(label)}${count!==undefined?`<small>${number(count)}</small>`:''}</button>`).join('')}
   function emptyNote(title,text=''){return `<div class="empty-note"><h2>${esc(title)}</h2>${text?`<p>${esc(text)}</p>`:''}</div>`}
 
@@ -125,7 +144,7 @@
         <span class="round">${icon('play')}</span>
       </button>`:`
       <button class="hero empty-hero" data-view="live">
-        <div><small>Comece pelo direto</small><strong>Televisão<br>portuguesa</strong><span>${number(state.channels.length)} canais em direto</span></div>
+        <div><small>Comece pelo direto</small><strong>Televisão<br>em direto</strong><span>${number(state.channels.length)} canais em direto</span></div>
         <span class="round">${icon('play')}</span>
       </button>`;
     const stats=`<div class="stats">
@@ -135,7 +154,7 @@
       <button class="stat coral" data-view="favorites"><small>Favoritos</small><strong>${number(favs().size)}</strong></button>
     </div>`;
     const row=(title,view,cards)=>cards?`<section><div class="row-head"><h2>${title}</h2>${view?`<button data-view="${view}">Ver tudo</button>`:''}</div><div class="row">${cards}</div></section>`:'';
-    const channels=state.channels.filter(c=>c._luminaSection==='Generalistas').slice(0,16);
+    const channels=state.channels.filter(c=>c._luminaSection===state.sections[0]).slice(0,16);
     grid.className='home';
     grid.innerHTML=`<div class="home-top">${hero}${stats}</div>
       ${row('Em direto','live',channels.map(c=>card(c,'live')).join(''))}
@@ -144,12 +163,12 @@
   }
 
   function renderLive(grid,tabs){
-    const counts=CHANNEL_SECTIONS.map(s=>[s,s,state.channels.filter(c=>c._luminaSection===s).length]).filter(x=>x[2]);
+    const counts=state.sections.map(s=>[s,s,state.channels.filter(c=>c._luminaSection===s).length]).filter(x=>x[2]);
     if(!counts.some(([s])=>s===state.liveSection)&&counts.length)state.liveSection=counts[0][0];
     tabs.innerHTML=tabsHTML(counts,state.liveSection,'data-section');tabs.classList.toggle('hidden',!counts.length);
     const channels=state.channels.filter(c=>c._luminaSection===state.liveSection);
     grid.className='grid live-grid';
-    grid.innerHTML=channels.length?channels.map(c=>card(c,'live')).join(''):emptyNote('Sem canais portugueses','Não foram encontrados os separadores da lista portuguesa.');
+    grid.innerHTML=channels.length?channels.map(c=>card(c,'live')).join(''):emptyNote('Sem canais','O fornecedor não devolveu canais em direto.');
   }
 
   function renderContent(grid,tabs,kind){
@@ -175,6 +194,7 @@
 
   function render(){
     $('#viewTitle').textContent=TITLES[state.view];
+    [$('#viewIndex').textContent,$('#viewKicker').textContent]=KICKERS[state.view];
     $$('.dock-btn').forEach(b=>b.classList.toggle('active',b.dataset.view===state.view));
     const grid=$('#grid'), tabs=$('#tabs');
     tabs.classList.add('hidden');
@@ -343,7 +363,7 @@
     const next=document.documentElement.dataset.theme==='dark'?'light':'dark';
     document.documentElement.dataset.theme=next;
     try{localStorage.setItem('lumina_atlas_theme',next)}catch{}
-    document.querySelector('meta[name="theme-color"]').content=next==='dark'?'#0E0F0C':'#F2F3EF';
+    document.querySelector('meta[name="theme-color"]').content=next==='dark'?'#050505':'#F2F2EE';
     themeIcon();
   }
 
@@ -362,7 +382,56 @@
   document.addEventListener('keydown',e=>{if(e.key==='Enter'&&e.target.classList?.contains('card'))openItem(e.target.dataset.kind,e.target.dataset.id)});
   $('#theaterButton').onclick=()=>{location.href='/theater'};
   $('#themeButton').onclick=toggleTheme;themeIcon();
-  $('#settingsButton').onclick=openPin;$('#emptySetup').onclick=openPin;
+  // --- Provider sheet: an address (Xtream or M3U) or a file -------------------------------------------
+  let providerSource='url';
+  function providerTab(source){
+    providerSource=source;
+    $$('#providerDialog [data-source]').forEach(b=>{const on=b.dataset.source===source;b.classList.toggle('active',on);b.setAttribute('aria-selected',String(on))});
+    $('#sourceUrl').classList.toggle('hidden',source!=='url');$('#sourceFile').classList.toggle('hidden',source!=='file');
+  }
+  function openProvider(){
+    if(!state.authenticated){toast('Entra primeiro com o PIN');return}
+    if($('#settingsDialog').open)$('#settingsDialog').close();
+    $('#providerUrl').value='';$('#providerUrl').type='password';$('#providerReveal').textContent='Mostrar';
+    $('#providerFile').value='';$('#providerFileName').textContent='Escolher ficheiro';
+    providerTab('url');$('#providerNow').classList.add('hidden');
+    api('/api/provider').then(p=>{
+      if(!p.configured)return;
+      $('#providerNowHost').textContent=p.host||'—';
+      $('#providerNowType').textContent=p.type==='m3u'?'Lista M3U':'Xtream';
+      $('#providerNow').classList.remove('hidden');
+    }).catch(()=>{});
+    $('#providerDialog').showModal();$('#providerUrl').focus();
+  }
+  $$('#providerDialog [data-source]').forEach(b=>b.onclick=()=>{providerTab(b.dataset.source);(b.dataset.source==='url'?$('#providerUrl'):$('#sourceFile .drop')).focus()});
+  $('#providerReveal').onclick=()=>{const input=$('#providerUrl'),show=input.type==='password';input.type=show?'text':'password';$('#providerReveal').textContent=show?'Ocultar':'Mostrar';$('#providerReveal').setAttribute('aria-pressed',String(show))};
+  $('#providerFile').onchange=()=>{const f=$('#providerFile').files[0];$('#providerFileName').textContent=f?`${f.name} · ${(f.size/1048576).toFixed(f.size<1048576?2:1)} MB`:'Escolher ficheiro'};
+  $('#sourceFile .drop').tabIndex=0;
+  $('#sourceFile .drop').onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();$('#providerFile').click()}};
+  $('#providerTopButton').onclick=()=>state.authenticated?openProvider():openPin();
+  function tick(){const d=new Date(),days=['DOM','SEG','TER','QUA','QUI','SEX','SÁB'],months=['JAN','FEV','MAR','ABR','MAI','JUN','JUL','AGO','SET','OUT','NOV','DEZ'];
+    $('#clock').innerHTML=`${days[d.getDay()]} ${d.getDate()} ${months[d.getMonth()]}<b>${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}</b>`}
+  tick();setInterval(tick,15000);
+  $('#settingsButton').onclick=openPin;$('#emptySetup').onclick=()=>state.authenticated?openProvider():openPin();
+  $('#providerButton').onclick=openProvider;
+  $('#saveProvider').onclick=async e=>{
+    e.preventDefault();
+    try{
+      const file=providerSource==='file'?$('#providerFile').files[0]:null;
+      if(providerSource==='file'&&!file)throw new Error('Escolhe um ficheiro .m3u ou .url');
+      const text=file?await file.text():$('#providerUrl').value.trim();
+      if(!text)throw new Error('Introduz o URL da conta ou da lista');
+      // A whole playlist goes as it is (up to 64 MB); a link or a .url shortcut as JSON.
+      if(file&&/#EXTINF/i.test(text)&&!/^URL=/im.test(text)){
+        if(file.size>64*1024*1024)throw new Error('Lista M3U demasiado grande (máximo 64 MB)');
+        await api('/api/provider/playlist',{method:'POST',body:text,headers:{'content-type':'text/plain; charset=utf-8'}});
+      }else{
+        if(text.length>8000)throw new Error('O URL é demasiado longo');
+        await api('/api/provider',{method:'POST',body:JSON.stringify({url:text})});
+      }
+      $('#providerDialog').close();bootstrap();
+    }catch(error){toast(error.message)}
+  };
   $('#saveSettings').onclick=async e=>{e.preventDefault();try{await api('/api/login',{method:'POST',body:JSON.stringify({pin:$('#deviceToken').value})});$('#settingsDialog').close();bootstrap()}catch(err){toast(err.status===429?'Demasiadas tentativas. Tenta mais tarde.':err.message)}};
   $('#searchButton').onclick=()=>{$('#searchDialog').showModal();$('#searchInput').focus()};
   $('#searchInput').oninput=e=>doSearch(e.target.value);
