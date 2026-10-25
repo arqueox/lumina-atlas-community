@@ -2,6 +2,8 @@
 
     <!-- IPTV catalogues and streams. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- ExoPlayer keeps the CPU and network awake while playing. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <uses-feature android:name="android.software.leanback" android:required="false" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
@@ -19,7 +21,8 @@
         android:icon="@drawable/app_icon"
         android:banner="@drawable/app_banner"
         android:theme="@style/Theme.Noir"
-        android:supportsRtl="false">
+        android:supportsRtl="false"
+        android:usesCleartextTraffic="true">
 
         <activity
             android:name=".MainActivity"
