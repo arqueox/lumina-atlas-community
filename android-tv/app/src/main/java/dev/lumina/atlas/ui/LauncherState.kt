@@ -90,7 +90,7 @@ class LauncherState(private val prefs: LauncherPrefs, private val ownPkg: String
 
     /** The launcher's own IPTV, as a tile of the "A ver agora" row. */
     private val self get() = AppEntry(
-        pkg = ownPkg, activity = "", label = "Televisão", name = "TELEVISÃO",
+        pkg = ownPkg, activity = "", label = tr("Televisão", "Television"), name = tr("TELEVISÃO", "TELEVISION"),
         kind = when (now(ownPkg)?.kind) { "live" -> "DIRETO"; "episode" -> "SÉRIES"; else -> "FILMES" },
         version = "—", art = null, artIsBanner = false,
     )

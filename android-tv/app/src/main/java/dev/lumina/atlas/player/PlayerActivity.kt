@@ -1,5 +1,6 @@
 package dev.lumina.atlas.player
 
+import dev.lumina.atlas.ui.tr
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
@@ -117,7 +118,7 @@ class PlayerActivity : ComponentActivity() {
                 if (state == Player.STATE_ENDED) item?.let { resume.edit().remove(it.url).apply() }
             }
             override fun onPlayerError(e: PlaybackException) {
-                error = "NÃO FOI POSSÍVEL REPRODUZIR\n${e.errorCodeName}"
+                error = tr("NÃO FOI POSSÍVEL REPRODUZIR", "COULD NOT PLAY") + "\n${e.errorCodeName}"
                 overlayTick++
             }
         })
@@ -257,7 +258,7 @@ class PlayerActivity : ComponentActivity() {
             Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(300.dp).background(Brush.verticalGradient(0f to Color.Transparent, 1f to Noir.copy(alpha = 0.95f))))
             Column(Modifier.padding(start = 112.dp, top = 72.dp, end = 112.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    T(if (live) "EM DIRETO" else if (current.kind == "episode") "EPISÓDIO" else "FILME", 14.sp, Accent, weight = FontWeight.Bold, spacing = 0.3.em)
+                    T(if (live) tr("EM DIRETO", "LIVE") else if (current.kind == "episode") tr("EPISÓDIO", "EPISODE") else tr("FILME", "MOVIE"), 14.sp, Accent, weight = FontWeight.Bold, spacing = 0.3.em)
                     Box(Modifier.padding(horizontal = 18.dp).width(48.dp).height(1.dp).background(Dim))
                     T(current.subtitle.uppercase(), 14.sp, Soft, spacing = 0.3.em)
                 }
@@ -271,13 +272,13 @@ class PlayerActivity : ComponentActivity() {
                     }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(28.dp)) {
-                    T(if (playing) "A REPRODUZIR" else "EM PAUSA", 14.sp, Paper, weight = FontWeight.Bold, spacing = 0.24.em)
+                    T(if (playing) tr("A REPRODUZIR", "PLAYING") else tr("EM PAUSA", "PAUSED"), 14.sp, Paper, weight = FontWeight.Bold, spacing = 0.24.em)
                     if (!live && duration > 0) {
                         T(clock(position), 14.sp, Paper, spacing = 0.14.em)
                         T("−" + clock(duration - position), 14.sp, Dim, spacing = 0.14.em)
                     }
                     Box(Modifier.weight(1f))
-                    T(if (live) "▲ ▼ CANAL · OK INFORMAÇÃO · ◀ VOLTAR" else "◀ ▶ −10 S / +30 S · OK PAUSA · VOLTAR SAIR", 12.sp, Dim, spacing = 0.2.em)
+                    T(if (live) tr("▲ ▼ CANAL · OK INFORMAÇÃO · ◀ VOLTAR", "▲ ▼ CHANNEL · OK INFO · ◀ BACK") else tr("◀ ▶ −10 S / +30 S · OK PAUSA · VOLTAR SAIR", "◀ ▶ −10 S / +30 S · OK PAUSE · BACK EXIT"), 12.sp, Dim, spacing = 0.2.em)
                 }
             }
         }

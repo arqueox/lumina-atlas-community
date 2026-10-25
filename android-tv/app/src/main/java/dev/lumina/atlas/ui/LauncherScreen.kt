@@ -275,16 +275,16 @@ private fun Rail(state: LauncherState, actions: LauncherActions) {
             drawRect(Noir, Offset(17f, 30f), Size(10f, 3f))
         }
         Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 72.dp)) {
-            RailItem("Início", Icons.home, state.section == Section.INICIO) { state.section = Section.INICIO; state.homeTick++ }
-            RailItem("Direto", Icons.live, state.section == Section.DIRETO) { state.section = Section.DIRETO }
-            RailItem("Filmes", Icons.movie, state.section == Section.FILMES) { state.section = Section.FILMES }
-            RailItem("Séries", Icons.series, state.section == Section.SERIES) { state.section = Section.SERIES }
-            RailItem("Aplicações", Icons.apps, state.section == Section.APPS) { state.section = Section.APPS }
-            RailItem("Pesquisar", Icons.search, false, actions::search)
-            if (!state.builtIn) RailItem("Fonte IPTV", Icons.link, state.section == Section.FONTE) { state.section = Section.FONTE }
-            RailItem("Definições", Icons.gear, false, actions::settings)
-            RailItem("A ver agora (acesso às sessões de media)", Icons.nowList, false, actions::watchSetup)
-            RailItem("Botão Home", Icons.remote, false, actions::homeSetup)
+            RailItem(tr("Início", "Home"), Icons.home, state.section == Section.INICIO) { state.section = Section.INICIO; state.homeTick++ }
+            RailItem(tr("Direto", "Live"), Icons.live, state.section == Section.DIRETO) { state.section = Section.DIRETO }
+            RailItem(tr("Filmes", "Movies"), Icons.movie, state.section == Section.FILMES) { state.section = Section.FILMES }
+            RailItem(tr("Séries", "Series"), Icons.series, state.section == Section.SERIES) { state.section = Section.SERIES }
+            RailItem(tr("Aplicações", "Apps"), Icons.apps, state.section == Section.APPS) { state.section = Section.APPS }
+            RailItem(tr("Pesquisar", "Search"), Icons.search, false, actions::search)
+            if (!state.builtIn) RailItem(tr("Fonte IPTV", "IPTV source"), Icons.link, state.section == Section.FONTE) { state.section = Section.FONTE }
+            RailItem(tr("Definições", "Settings"), Icons.gear, false, actions::settings)
+            RailItem(tr("A ver agora (acesso às sessões de media)", "Now playing (media session access)"), Icons.nowList, false, actions::watchSetup)
+            RailItem(tr("Botão Home", "Home button"), Icons.remote, false, actions::homeSetup)
         }
     }
 }
@@ -309,8 +309,9 @@ private fun RailItem(label: String, icon: List<String>, selected: Boolean, onCli
     ) { LineIcon(icon, color, 26) }
 }
 
-private val DAYS = listOf("DOM", "SEG", "TER", "QUA", "QUI", "SEX", "SÁB")
-private val MONTHS = listOf("JAN", "FEV", "MAR", "ABR", "MAI", "JUN", "JUL", "AGO", "SET", "OUT", "NOV", "DEZ")
+private val DAYS get() = if (I18n.portuguese) listOf("DOM", "SEG", "TER", "QUA", "QUI", "SEX", "SÁB") else listOf("SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT")
+private val MONTHS get() = if (I18n.portuguese) listOf("JAN", "FEV", "MAR", "ABR", "MAI", "JUN", "JUL", "AGO", "SET", "OUT", "NOV", "DEZ")
+    else listOf("JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC")
 
 private fun clock(ms: Long): Pair<String, String> {
     val c = Calendar.getInstance().apply { timeInMillis = ms }
@@ -328,11 +329,11 @@ private fun TopBar(state: LauncherState) {
     ) {
         T("ATLAS", 20.sp, weight = FontWeight.Bold, spacing = 0.9.em)
         Row(horizontalArrangement = Arrangement.spacedBy(44.dp)) {
-            Tab("INÍCIO", state.section == Section.INICIO)
-            Tab("DIRETO", state.section == Section.DIRETO)
-            Tab("FILMES", state.section == Section.FILMES)
-            Tab("SÉRIES", state.section == Section.SERIES)
-            Tab("APLICAÇÕES", state.section == Section.APPS)
+            Tab(tr("INÍCIO", "HOME"), state.section == Section.INICIO)
+            Tab(tr("DIRETO", "LIVE"), state.section == Section.DIRETO)
+            Tab(tr("FILMES", "MOVIES"), state.section == Section.FILMES)
+            Tab(tr("SÉRIES", "SERIES"), state.section == Section.SERIES)
+            Tab(tr("APLICAÇÕES", "APPS"), state.section == Section.APPS)
         }
         Spacer(Modifier.weight(1f))
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(28.dp)) {
@@ -364,7 +365,7 @@ private fun Grain() {
 
 // --- Início -----------------------------------------------------------------------------------------------
 
-private val TAGLINES = mapOf(
+private val TAGLINES get() = if (I18n.portuguese) mapOf(
     "SÉRIES" to "Uma temporada de cada vez.",
     "FILMES" to "A sala escura, em casa.",
     "FAMÍLIA" to "Para ver todos juntos.",
@@ -375,17 +376,28 @@ private val TAGLINES = mapOf(
     "MÚSICA" to "Para ouvir alto.",
     "JOGOS" to "Comando na mão.",
     "BIBLIOTECA" to "A tua coleção, em todo o lado.",
+) else mapOf(
+    "SÉRIES" to "One season at a time.",
+    "FILMES" to "The dark room, at home.",
+    "FAMÍLIA" to "For watching together.",
+    "HI-RES" to "Music as it was recorded.",
+    "DIRETO" to "What's on right now.",
+    "DESPORTO" to "Live, no half-time.",
+    "VÍDEO" to "Everything there is to watch.",
+    "MÚSICA" to "Made to be played loud.",
+    "JOGOS" to "Controller in hand.",
+    "BIBLIOTECA" to "Your collection, everywhere.",
 )
 
 internal fun whenOpened(ms: Long?, now: Long): String {
-    if (ms == null) return "NUNCA"
+    if (ms == null) return tr("NUNCA", "NEVER")
     val c = Calendar.getInstance().apply { timeInMillis = ms }
     val today = Calendar.getInstance().apply { timeInMillis = now }
     val days = (today.get(Calendar.YEAR) * 400 + today.get(Calendar.DAY_OF_YEAR)) - (c.get(Calendar.YEAR) * 400 + c.get(Calendar.DAY_OF_YEAR))
     val hm = "${two(c.get(Calendar.HOUR_OF_DAY))}:${two(c.get(Calendar.MINUTE))}"
     return when (days) {
-        0 -> "HOJE $hm"
-        1 -> "ONTEM $hm"
+        0 -> tr("HOJE", "TODAY") + " $hm"
+        1 -> tr("ONTEM", "YESTERDAY") + " $hm"
         else -> "${c.get(Calendar.DAY_OF_MONTH)} ${MONTHS[c.get(Calendar.MONTH)]}"
     }
 }
@@ -440,8 +452,8 @@ private fun Home(state: LauncherState, actions: LauncherActions, iptv: IptvActio
             val row = state.row
             val at = row.indexOfFirst { it.app.pkg == hero?.pkg }
             Kicker(
-                "02", "A VER AGORA",
-                trailing = if (state.canWatch) "${two(if (at >= 0) at + 1 else 0)} / ${two(row.size)}" else "PARA ATIVAR: RAIL › A VER AGORA",
+                "02", tr("A VER AGORA", "NOW PLAYING"),
+                trailing = if (state.canWatch) "${two(if (at >= 0) at + 1 else 0)} / ${two(row.size)}" else tr("PARA ATIVAR: RAIL › A VER AGORA", "TO TURN ON: RAIL › NOW PLAYING"),
             )
             Row(Modifier.fillMaxWidth().border(1.dp, Line)) {
                 for (i in 0 until MAX_FAVORITES) {
@@ -459,10 +471,10 @@ private fun Home(state: LauncherState, actions: LauncherActions, iptv: IptvActio
             verticalArrangement = Arrangement.spacedBy(16.dp),
             modifier = Modifier.offset(y = 916.dp).fillMaxWidth(),
         ) {
-            val channels = remember(state.catalog) { state.catalog.channels.filter { it.group.ifBlank { "Canais" } == state.catalog.groups.firstOrNull() }.take(40) }
+            val channels = remember(state.catalog) { state.catalog.channels.filter { it.group.ifBlank { noChannelGroup() } == state.catalog.groups.firstOrNull() }.take(40) }
             if (channels.isNotEmpty()) {
                 Box(Modifier.padding(start = 192.dp, end = 64.dp)) {
-                    Kicker("03", "EM DIRETO · " + state.catalog.groups.first().uppercase(), trailing = "VER TUDO NO RAIL › DIRETO")
+                    Kicker("03", tr("EM DIRETO · ", "LIVE · ") + state.catalog.groups.first().uppercase(), trailing = tr("VER TUDO NO RAIL › DIRETO", "SEE ALL: RAIL › LIVE"))
                 }
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp), contentPadding = PaddingValues(start = 192.dp, end = 64.dp)) {
                     itemsIndexed(channels, key = { _, c -> c.id }) { _, ch ->
@@ -472,7 +484,7 @@ private fun Home(state: LauncherState, actions: LauncherActions, iptv: IptvActio
                 return@Column
             }
             Box(Modifier.padding(start = 192.dp, end = 64.dp)) {
-                Kicker("03", "TODAS AS APLICAÇÕES", trailing = two(state.apps.size))
+                Kicker("03", tr("TODAS AS APLICAÇÕES", "ALL APPS"), trailing = two(state.apps.size))
             }
             // Recently opened first, then A–Z.
             val order = remember(state.apps, state.recents) {
@@ -529,7 +541,7 @@ private fun HeroCopy(state: LauncherState, hero: AppEntry, actions: LauncherActi
         else -> 84
     }
     Column(Modifier.offset(x = 192.dp, y = 140.dp).width(900.dp)) {
-        Kicker("01", if (latest) "CONTINUAR" else "SELECIONADA", size = 14)
+        Kicker("01", if (latest) tr("CONTINUAR", "CONTINUE") else tr("SELECIONADA", "SELECTED"), size = 14)
         T(
             hero.name, titleSize.sp, Accent, Anton,
             lineHeight = (titleSize * 0.88f).sp, maxLines = 2,
@@ -548,10 +560,10 @@ private fun HeroCopy(state: LauncherState, hero: AppEntry, actions: LauncherActi
                     drawRect(Line, Offset(0f, size.height - 1), Size(size.width, 1f))
                 }
         ) {
-            Fact("CATEGORIA", hero.kind, first = true)
-            Fact("ÚLTIMA VEZ", whenOpened(state.lastOpened(hero.pkg), state.now))
-            Fact("VERSÃO", hero.version)
-            Fact("FILA", if (at >= 0) "${two(at + 1)} / ${two(favs.size)}" else "—")
+            Fact(tr("CATEGORIA", "CATEGORY"), kindLabel(hero.kind), first = true)
+            Fact(tr("ÚLTIMA VEZ", "LAST USED"), whenOpened(state.lastOpened(hero.pkg), state.now))
+            Fact(tr("VERSÃO", "VERSION"), hero.version)
+            Fact(tr("FILA", "ROW"), if (at >= 0) "${two(at + 1)} / ${two(favs.size)}" else "—")
         }
 
         // Position in the row, as the canvas's segmented progress bar.
@@ -571,12 +583,12 @@ private fun HeroCopy(state: LauncherState, hero: AppEntry, actions: LauncherActi
         }
 
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.padding(top = 26.dp)) {
-            HeroButton(if (latest) "RETOMAR" else "ABRIR", primary = true, modifier = Modifier.focusRequester(primary)) {
+            HeroButton(if (latest) tr("RETOMAR", "RESUME") else tr("ABRIR", "OPEN"), primary = true, modifier = Modifier.focusRequester(primary)) {
                 actions.open(hero.pkg)
             }
-            HeroButton("INFORMAÇÕES") { actions.appInfo(hero.pkg) }
-            SquareButton(if (pinned) Icons.minus else Icons.plus, if (pinned) "Tirar da fila" else "Pôr na fila") {
-                if (!state.toggleFavorite(hero.pkg)) state.toast = "A FILA JÁ TEM $MAX_FAVORITES APPS"
+            HeroButton(tr("INFORMAÇÕES", "INFO")) { actions.appInfo(hero.pkg) }
+            SquareButton(if (pinned) Icons.minus else Icons.plus, if (pinned) tr("Tirar da fila", "Remove from row") else tr("Pôr na fila", "Add to row")) {
+                if (!state.toggleFavorite(hero.pkg)) state.toast = tr("A FILA JÁ TEM $MAX_FAVORITES APPS", "THE ROW ALREADY HAS $MAX_FAVORITES APPS")
             }
         }
     }
@@ -599,7 +611,7 @@ private fun NowCopy(state: LauncherState, app: AppEntry, now: NowEntry, actions:
     }
     val fraction = if (now.durationMs > 0) (now.positionMs.toFloat() / now.durationMs).coerceIn(0f, 1f) else null
     Column(Modifier.offset(x = 192.dp, y = 140.dp).width(900.dp)) {
-        Kicker("01", (if (now.playing) "A REPRODUZIR" else "CONTINUAR") + " · " + app.name, size = 14)
+        Kicker("01", (if (now.playing) tr("A REPRODUZIR", "PLAYING") else tr("CONTINUAR", "CONTINUE")) + " · " + app.name, size = 14)
         T(
             title, titleSize.sp, Accent, Anton,
             lineHeight = (titleSize * 0.88f).sp, maxLines = 2, ellipsis = true,
@@ -616,10 +628,10 @@ private fun NowCopy(state: LauncherState, app: AppEntry, now: NowEntry, actions:
                     drawRect(Line, Offset(0f, size.height - 1), Size(size.width, 1f))
                 }
         ) {
-            Fact("SERVIÇO", app.name, first = true)
-            Fact("ÚLTIMA VEZ", whenOpened(now.at, state.now))
-            Fact("ESTADO", if (now.playing) "A REPRODUZIR" else "EM PAUSA")
-            Fact("CATEGORIA", app.kind)
+            Fact(tr("SERVIÇO", "SERVICE"), app.name, first = true)
+            Fact(tr("ÚLTIMA VEZ", "LAST USED"), whenOpened(now.at, state.now))
+            Fact(tr("ESTADO", "STATUS"), if (now.playing) tr("A REPRODUZIR", "PLAYING") else tr("EM PAUSA", "PAUSED"))
+            Fact(tr("CATEGORIA", "CATEGORY"), kindLabel(app.kind))
         }
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -633,14 +645,14 @@ private fun NowCopy(state: LauncherState, app: AppEntry, now: NowEntry, actions:
                 T(clockOf(now.positionMs), 14.sp, Paper, weight = FontWeight.Bold, spacing = 0.14.em)
                 T("−" + clockOf(now.durationMs - now.positionMs), 14.sp, Dim, spacing = 0.14.em)
             } else {
-                T("SEM DURAÇÃO", 14.sp, Dim, spacing = 0.14.em)
+                T(tr("SEM DURAÇÃO", "NO DURATION"), 14.sp, Dim, spacing = 0.14.em)
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.padding(top = 26.dp)) {
-            HeroButton("RETOMAR", primary = true, modifier = Modifier.focusRequester(primary)) { actions.open(app.pkg) }
-            HeroButton("INFORMAÇÕES") { actions.appInfo(app.pkg) }
-            SquareButton(if (pinned) Icons.minus else Icons.plus, if (pinned) "Tirar da fila" else "Pôr na fila") {
-                if (!state.toggleFavorite(app.pkg)) state.toast = "A FILA JÁ TEM $MAX_FAVORITES APPS"
+            HeroButton(tr("RETOMAR", "RESUME"), primary = true, modifier = Modifier.focusRequester(primary)) { actions.open(app.pkg) }
+            HeroButton(tr("INFORMAÇÕES", "INFO")) { actions.appInfo(app.pkg) }
+            SquareButton(if (pinned) Icons.minus else Icons.plus, if (pinned) tr("Tirar da fila", "Remove from row") else tr("Pôr na fila", "Add to row")) {
+                if (!state.toggleFavorite(app.pkg)) state.toast = tr("A FILA JÁ TEM $MAX_FAVORITES APPS", "THE ROW ALREADY HAS $MAX_FAVORITES APPS")
             }
         }
     }
@@ -724,7 +736,7 @@ private fun FavoriteTile(item: RowItem, index: Int, state: LauncherState, action
         Row(Modifier.fillMaxWidth().alpha(0.72f)) {
             T(two(index + 1), 11.sp, fg, spacing = 0.24.em)
             Spacer(Modifier.weight(1f))
-            T(if (now == null) app.kind else (if (now.playing) "▶ " else "") + app.name, 11.sp, fg, spacing = 0.24.em, ellipsis = true)
+            T(if (now == null) kindLabel(app.kind) else (if (now.playing) "▶ " else "") + app.name, 11.sp, fg, spacing = 0.24.em, ellipsis = true)
         }
         T(now?.title?.uppercase() ?: app.name, if (now == null) 30.sp else 24.sp, fg, Anton, spacing = 0.02.em, lineHeight = 30.sp, ellipsis = true)
     }
@@ -740,7 +752,7 @@ private fun EmptySlot(index: Int, modifier: Modifier) {
             .padding(horizontal = 20.dp, vertical = 14.dp),
     ) {
         T(two(index + 1), 11.sp, Rule, spacing = 0.24.em)
-        T("MENU › FIXAR", 13.sp, Rule, spacing = 0.2.em)
+        T(tr("MENU › FIXAR", "MENU › PIN"), 13.sp, Rule, spacing = 0.2.em)
     }
 }
 
@@ -768,7 +780,7 @@ private fun WideTile(app: AppEntry, state: LauncherState, actions: LauncherActio
             verticalArrangement = Arrangement.SpaceBetween,
             modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 22.dp),
         ) {
-            T(app.kind + if (state.isFavorite(app.pkg)) " · FILA" else "", 11.sp, Dim, spacing = 0.28.em)
+            T(kindLabel(app.kind) + if (state.isFavorite(app.pkg)) tr(" · FILA", " · ROW") else "", 11.sp, Dim, spacing = 0.28.em)
             T(app.name, 40.sp, if (focused) Accent else Paper, Anton, lineHeight = 36.sp)
         }
     }
@@ -792,7 +804,7 @@ private fun LiveStrip(ch: dev.lumina.atlas.data.Channel, modifier: Modifier, onC
             else T(ch.name.take(3).uppercase(), 26.sp, Rule, Anton)
         }
         Column(Modifier.padding(start = 16.dp).weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            T("● DIRETO", 11.sp, Color(0xFFFF5A4F), weight = FontWeight.Bold, spacing = 0.2.em)
+            T(tr("● DIRETO", "● LIVE"), 11.sp, Color(0xFFFF5A4F), weight = FontWeight.Bold, spacing = 0.2.em)
             T(ch.name.uppercase(), 26.sp, if (focused) Accent else Paper, Anton, lineHeight = 26.sp, maxLines = 2, ellipsis = true)
         }
     }
@@ -819,8 +831,8 @@ private fun AllApps(state: LauncherState, actions: LauncherActions) {
     val first = remember { FocusRequester() }
     LaunchedEffect(state.apps.isNotEmpty()) { runCatching { first.requestFocus() } }
     Column(Modifier.offset(x = 192.dp, y = 140.dp).width(1664.dp).height(940.dp)) {
-        Kicker("01", "TODAS AS APLICAÇÕES", size = 14, trailing = two(state.apps.size))
-        T("APLICAÇÕES", 112.sp, Accent, Anton, lineHeight = 100.sp, modifier = Modifier.padding(top = 22.dp, bottom = 28.dp))
+        Kicker("01", tr("TODAS AS APLICAÇÕES", "ALL APPS"), size = 14, trailing = two(state.apps.size))
+        T(tr("APLICAÇÕES", "APPS"), 112.sp, Accent, Anton, lineHeight = 100.sp, modifier = Modifier.padding(top = 22.dp, bottom = 28.dp))
         LazyVerticalGrid(
             columns = GridCells.Fixed(4),
             horizontalArrangement = Arrangement.spacedBy(16.dp),
@@ -851,7 +863,7 @@ private fun GridTile(app: AppEntry, index: Int, state: LauncherState, actions: L
             Row(Modifier.fillMaxWidth().alpha(0.72f)) {
                 T(two(index + 1), 11.sp, if (focused) Noir else Paper, spacing = 0.24.em)
                 Spacer(Modifier.weight(1f))
-                T(app.kind + if (state.isFavorite(app.pkg)) " · FILA" else "", 11.sp, if (focused) Noir else Paper, spacing = 0.24.em)
+                T(kindLabel(app.kind) + if (state.isFavorite(app.pkg)) tr(" · FILA", " · ROW") else "", 11.sp, if (focused) Noir else Paper, spacing = 0.24.em)
             }
             T(app.name, 30.sp, if (focused) Noir else Paper, Anton, lineHeight = 30.sp)
         }
@@ -868,20 +880,20 @@ private fun Options(app: AppEntry, state: LauncherState, actions: LauncherAction
     val at = state.favorites.indexOf(app.pkg)
     Box(Modifier.fillMaxSize().background(Noir.copy(alpha = 0.92f))) {
         Column(Modifier.offset(x = 192.dp, y = 200.dp).width(900.dp)) {
-            Kicker("··", "OPÇÕES", size = 14)
+            Kicker("··", tr("OPÇÕES", "OPTIONS"), size = 14)
             T(app.name, 112.sp, Accent, Anton, lineHeight = 100.sp, maxLines = 2, modifier = Modifier.padding(top = 22.dp))
             T(app.label, 30.sp, Color(0xFFE6E6E0), Serif, modifier = Modifier.padding(top = 10.dp, bottom = 34.dp))
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Option("ABRIR", Modifier.focusRequester(first)) { state.menuFor = null; actions.open(app.pkg) }
-                Option(if (pinned) "TIRAR DA FILA" else "PÔR NA FILA") {
-                    if (!state.toggleFavorite(app.pkg)) state.toast = "A FILA JÁ TEM $MAX_FAVORITES APPS"
+                Option(tr("ABRIR", "OPEN"), Modifier.focusRequester(first)) { state.menuFor = null; actions.open(app.pkg) }
+                Option(if (pinned) tr("TIRAR DA FILA", "REMOVE FROM ROW") else tr("PÔR NA FILA", "ADD TO ROW")) {
+                    if (!state.toggleFavorite(app.pkg)) state.toast = tr("A FILA JÁ TEM $MAX_FAVORITES APPS", "THE ROW ALREADY HAS $MAX_FAVORITES APPS")
                     state.menuFor = null
                 }
-                if (pinned && at > 0) Option("MOVER PARA A ESQUERDA") { state.move(app.pkg, -1) }
-                if (pinned && at < state.favorites.size - 1) Option("MOVER PARA A DIREITA") { state.move(app.pkg, 1) }
-                if (state.now(app.pkg) != null) Option("TIRAR DE «A VER AGORA»") { state.menuFor = null; actions.forget(app.pkg) }
-                Option("INFORMAÇÕES DA APP") { state.menuFor = null; actions.appInfo(app.pkg) }
-                Option("FECHAR") { state.menuFor = null }
+                if (pinned && at > 0) Option(tr("MOVER PARA A ESQUERDA", "MOVE LEFT")) { state.move(app.pkg, -1) }
+                if (pinned && at < state.favorites.size - 1) Option(tr("MOVER PARA A DIREITA", "MOVE RIGHT")) { state.move(app.pkg, 1) }
+                if (state.now(app.pkg) != null) Option(tr("TIRAR DE «A VER AGORA»", "REMOVE FROM NOW PLAYING")) { state.menuFor = null; actions.forget(app.pkg) }
+                Option(tr("INFORMAÇÕES DA APP", "APP INFO")) { state.menuFor = null; actions.appInfo(app.pkg) }
+                Option(tr("FECHAR", "CLOSE")) { state.menuFor = null }
             }
         }
     }

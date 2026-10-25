@@ -1,5 +1,7 @@
 package dev.lumina.atlas
 
+import dev.lumina.atlas.ui.I18n
+import dev.lumina.atlas.ui.tr
 import android.app.SearchManager
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -55,7 +57,7 @@ class MainActivity : ComponentActivity(), LauncherActions, IptvActions {
                     }
                 }.getOrNull()
             }
-            if (text == null) state.setupError = "Não foi possível ler o ficheiro (máximo 64 MB)" else saveSource(text)
+            if (text == null) state.setupError = tr("Não foi possível ler o ficheiro (máximo 64 MB)", "Could not read the file (64 MB at most)") else saveSource(text)
         }
     }
 
@@ -69,6 +71,7 @@ class MainActivity : ComponentActivity(), LauncherActions, IptvActions {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        I18n.load(this)
         repo = AppRepository(this)
         iptv = IptvRepository(this)
         state = LauncherState(LauncherPrefs(this), packageName)
@@ -146,7 +149,7 @@ class MainActivity : ComponentActivity(), LauncherActions, IptvActions {
             } catch (_: Exception) {
             }
         }
-        state.toast = "NÃO DISPONÍVEL NESTE DISPOSITIVO"
+        state.toast = tr("NÃO DISPONÍVEL NESTE DISPOSITIVO", "NOT AVAILABLE ON THIS DEVICE")
         return false
     }
 
@@ -161,7 +164,7 @@ class MainActivity : ComponentActivity(), LauncherActions, IptvActions {
         }
         val intent = repo.launchIntent(pkg)
         if (intent == null) {
-            state.toast = "ESTA APP NÃO ABRE NA TV"
+            state.toast = tr("ESTA APP NÃO ABRE NA TV", "THIS APP DOES NOT OPEN ON TV")
             return
         }
         if (tryStart(intent)) {
@@ -230,15 +233,15 @@ class MainActivity : ComponentActivity(), LauncherActions, IptvActions {
         PlayerActivity.play(this, PlayItem("movie", movie.name, movie.category, movie.url, movie.poster))
 
     override fun playEpisode(show: Show, episode: Episode) =
-        PlayerActivity.play(this, PlayItem("episode", show.name, "T${episode.season} E${episode.num} · ${episode.title}", episode.url, show.poster))
+        PlayerActivity.play(this, PlayItem("episode", show.name, tr("T", "S") + "${episode.season} E${episode.num} · ${episode.title}", episode.url, show.poster))
 
     override fun saveSource(text: String) {
-        if (text.isBlank()) { state.setupError = "Introduz o URL da conta ou da lista"; return }
+        if (text.isBlank()) { state.setupError = tr("Introduz o URL da conta ou da lista", "Enter the account or playlist URL"); return }
         state.setupBusy = true
         state.setupError = null
         lifecycleScope.launch {
             val saved = runCatching { withContext(Dispatchers.IO) { iptv.save(text) } }
-            saved.onFailure { state.setupError = it.message ?: "Endereço inválido" }
+            saved.onFailure { state.setupError = it.message ?: tr("Endereço inválido", "Invalid address") }
             saved.onSuccess { source ->
                 state.sourceLabel = source.label
                 state.catalog = dev.lumina.atlas.data.Catalog.EMPTY
@@ -247,16 +250,24 @@ class MainActivity : ComponentActivity(), LauncherActions, IptvActions {
                         state.catalog = it
                         state.catalogError = null
                         state.section = Section.INICIO
-                        state.toast = "FONTE LIGADA · ${it.channels.size} CANAIS"
+                        state.toast = tr("FONTE LIGADA · ${it.channels.size} CANAIS", "SOURCE CONNECTED · ${it.channels.size} CHANNELS")
                     }
-                    .onFailure { state.setupError = "Fonte guardada, mas o catálogo falhou: ${it.message}" }
+                    .onFailure { state.setupError = tr("Fonte guardada, mas o catálogo falhou: ", "Source saved, but the catalogue failed: ") + it.message }
             }
             state.setupBusy = false
         }
     }
 
+    override fun setLanguage(lang: dev.lumina.atlas.ui.Lang) {
+        I18n.set(this, lang)
+        state.setupError = null
+        // Catalogue fallbacks ("Canais"/"Channels") and the source label follow the language.
+        state.sourceLabel = iptv.saved()?.label
+        state.catalog = state.catalog.copy()
+    }
+
     override fun pickSourceFile() {
-        runCatching { pickFile.launch(arrayOf("*/*")) }.onFailure { state.toast = "NÃO HÁ GESTOR DE FICHEIROS" }
+        runCatching { pickFile.launch(arrayOf("*/*")) }.onFailure { state.toast = tr("NÃO HÁ GESTOR DE FICHEIROS", "NO FILE MANAGER") }
     }
 
     override fun homeSetup() {

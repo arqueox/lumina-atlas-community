@@ -35,10 +35,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
@@ -67,6 +72,7 @@ interface IptvActions {
     fun saveSource(text: String)
     fun pickSourceFile()
     fun refreshCatalog()
+    fun setLanguage(lang: Lang)
 }
 
 private val LogoGround = Color(0xFFECECE6)
@@ -87,22 +93,22 @@ private fun Page(index: String, kicker: String, title: String, trailing: String?
 private fun Empty(state: LauncherState, actions: IptvActions, first: FocusRequester) {
     Column(verticalArrangement = Arrangement.spacedBy(22.dp), modifier = Modifier.padding(top = 20.dp)) {
         val text = when {
-            state.sourceLabel == null -> "Ainda não há fonte IPTV. Liga uma conta Xtream ou uma lista M3U."
-            state.catalogLoading -> "A carregar o catálogo…"
-            state.catalogError != null -> "Não foi possível carregar o catálogo: ${state.catalogError}"
-            else -> "O fornecedor não tem nada nesta secção."
+            state.sourceLabel == null -> tr("Ainda não há fonte IPTV. Liga uma conta Xtream ou uma lista M3U.", "No IPTV source yet. Connect an Xtream account or an M3U playlist.")
+            state.catalogLoading -> tr("A carregar o catálogo…", "Loading the catalogue…")
+            state.catalogError != null -> tr("Não foi possível carregar o catálogo: ", "Could not load the catalogue: ") + state.catalogError
+            else -> tr("O fornecedor não tem nada nesta secção.", "The provider has nothing in this section.")
         }
         T(text, 34.sp, Soft, Serif, maxLines = 3)
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            if (state.sourceLabel == null) HeroButton("LIGAR FONTE", primary = true, modifier = Modifier.focusRequester(first)) { state.section = Section.FONTE }
-            else HeroButton("TENTAR DE NOVO", primary = true, modifier = Modifier.focusRequester(first)) { actions.refreshCatalog() }
+            if (state.sourceLabel == null) HeroButton(tr("LIGAR FONTE", "CONNECT SOURCE"), primary = true, modifier = Modifier.focusRequester(first)) { state.section = Section.FONTE }
+            else HeroButton(tr("TENTAR DE NOVO", "TRY AGAIN"), primary = true, modifier = Modifier.focusRequester(first)) { actions.refreshCatalog() }
         }
     }
 }
 
 /** Group pills over a grid: channel groups, film or series categories. */
 @Composable
-private fun Tabs(groups: List<Pair<String, Int>>, selected: String?, onSelect: (String) -> Unit) {
+private fun Tabs(groups: List<Pair<String, Int>>, selected: String?, counts: Boolean = true, onSelect: (String) -> Unit) {
     LazyRow(
         horizontalArrangement = Arrangement.spacedBy(0.dp),
         contentPadding = PaddingValues(0.dp),
@@ -115,14 +121,14 @@ private fun Tabs(groups: List<Pair<String, Int>>, selected: String?, onSelect: (
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .height(52.dp)
-                    .onFocusChanged { focused = it.isFocused; if (it.isFocused) onSelect(name) }
+                    .onFocusChanged { focused = it.isFocused; if (it.isFocused && counts) onSelect(name) }
                     .remote({ onSelect(name) })
                     .background(if (on) Accent else if (focused) Raised else Ink)
                     .border(if (focused) 2.dp else 0.dp, if (focused) Paper else Color.Transparent)
                     .padding(horizontal = 22.dp),
             ) {
                 T(name.uppercase(), 13.sp, if (on) Noir else Paper, weight = if (on) FontWeight.Bold else FontWeight.Normal, spacing = 0.22.em)
-                T("  $count", 11.sp, if (on) Noir.copy(alpha = 0.6f) else Dim, spacing = 0.1.em)
+                if (counts) T("  $count", 11.sp, if (on) Noir.copy(alpha = 0.6f) else Dim, spacing = 0.1.em)
             }
         }
     }
@@ -133,11 +139,11 @@ private fun Tabs(groups: List<Pair<String, Int>>, selected: String?, onSelect: (
 @Composable
 fun LivePage(state: LauncherState, actions: IptvActions) {
     val first = remember { FocusRequester() }
-    val groups = remember(state.catalog) { state.catalog.groups.map { g -> g to state.catalog.channels.count { it.group.ifBlank { "Canais" } == g } } }
+    val groups = remember(state.catalog) { state.catalog.groups.map { g -> g to state.catalog.channels.count { it.group.ifBlank { noChannelGroup() } == g } } }
     val selected = state.tabs[Section.DIRETO]?.takeIf { s -> groups.any { it.first == s } } ?: groups.firstOrNull()?.first
-    val list = remember(state.catalog, selected) { state.catalog.channels.filter { it.group.ifBlank { "Canais" } == selected } }
+    val list = remember(state.catalog, selected) { state.catalog.channels.filter { it.group.ifBlank { noChannelGroup() } == selected } }
     LaunchedEffect(Unit) { runCatching { first.requestFocus() } }
-    Page("02", "Em direto", "DIRETO", "${two(state.catalog.channels.size)} CANAIS") {
+    Page("02", tr("Em direto", "Live TV"), tr("DIRETO", "LIVE"), "${two(state.catalog.channels.size)} " + tr("CANAIS", "CHANNELS")) {
         if (list.isEmpty()) return@Page Empty(state, actions, first)
         Tabs(groups, selected) { state.tabs = state.tabs + (Section.DIRETO to it) }
         LazyVerticalGrid(
@@ -169,7 +175,7 @@ fun ChannelCard(ch: Channel, modifier: Modifier, onClick: () -> Unit) {
             else T(ch.name.take(3).uppercase(), 40.sp, Rule, Anton)
         }
         T(ch.name.uppercase(), 22.sp, if (focused) Accent else Paper, Anton, ellipsis = true, modifier = Modifier.padding(top = 12.dp, start = 4.dp))
-        T("● DIRETO", 11.sp, Color(0xFFFF5A4F), weight = FontWeight.Bold, spacing = 0.2.em, modifier = Modifier.padding(top = 4.dp, start = 4.dp, bottom = 4.dp))
+        T(tr("● DIRETO", "● LIVE"), 11.sp, Color(0xFFFF5A4F), weight = FontWeight.Bold, spacing = 0.2.em, modifier = Modifier.padding(top = 4.dp, start = 4.dp, bottom = 4.dp))
     }
 }
 
@@ -183,11 +189,11 @@ fun PosterPage(state: LauncherState, actions: IptvActions, series: Boolean) {
         if (series) state.catalog.shows.map { Triple(it.id, it.name, it.poster to it.category) }
         else state.catalog.movies.map { Triple(it.id, it.name, it.poster to it.category) }
     }
-    val groups = remember(items) { items.groupingBy { it.third.second.ifBlank { "Outros" } }.eachCount().toList() }
+    val groups = remember(items) { items.groupingBy { it.third.second.ifBlank { noCategory() } }.eachCount().toList() }
     val selected = state.tabs[section]?.takeIf { s -> groups.any { it.first == s } } ?: groups.firstOrNull()?.first
-    val list = remember(items, selected) { items.filter { it.third.second.ifBlank { "Outros" } == selected } }
+    val list = remember(items, selected) { items.filter { it.third.second.ifBlank { noCategory() } == selected } }
     LaunchedEffect(series) { runCatching { first.requestFocus() } }
-    Page(if (series) "04" else "03", "Catálogo", if (series) "SÉRIES" else "FILMES", "${two(items.size)} TÍTULOS") {
+    Page(if (series) "04" else "03", tr("Catálogo", "Catalogue"), if (series) tr("SÉRIES", "SERIES") else tr("FILMES", "MOVIES"), "${two(items.size)} " + tr("TÍTULOS", "TITLES")) {
         if (list.isEmpty()) return@Page Empty(state, actions, first)
         Tabs(groups, selected) { state.tabs = state.tabs + (section to it) }
         LazyVerticalGrid(
@@ -236,7 +242,7 @@ fun DetailOverlay(detail: DetailState, state: LauncherState, actions: IptvAction
         }
         Column(Modifier.offset(x = 192.dp, y = 120.dp).width(1000.dp)) {
             val meta = listOfNotNull(
-                if (detail.show != null) "SÉRIE" else "FILME",
+                if (detail.show != null) tr("SÉRIE", "SERIES") else tr("FILME", "MOVIE"),
                 d?.year?.takeIf { it.isNotBlank() }, d?.duration?.takeIf { it.isNotBlank() },
                 (d?.genre?.takeIf { it.isNotBlank() } ?: detail.movie?.category ?: detail.show?.category)?.uppercase(),
             ).joinToString(" · ")
@@ -244,15 +250,15 @@ fun DetailOverlay(detail: DetailState, state: LauncherState, actions: IptvAction
             T(name.uppercase(), if (name.length <= 18) 120.sp else 88.sp, Accent, Anton, lineHeight = 104.sp, maxLines = 2, ellipsis = true, modifier = Modifier.padding(top = 22.dp))
             T(
                 when {
-                    detail.loading -> "A carregar…"
-                    d?.plot.isNullOrBlank() -> "Sem sinopse do fornecedor."
+                    detail.loading -> tr("A carregar…", "Loading…")
+                    d?.plot.isNullOrBlank() -> tr("Sem sinopse do fornecedor.", "No synopsis from the provider.")
                     else -> d!!.plot
                 },
                 15.sp, Soft, lineHeight = 26.sp, maxLines = 5, ellipsis = true, modifier = Modifier.padding(top = 18.dp).width(820.dp),
             )
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.padding(top = 28.dp)) {
-                if (detail.movie != null) HeroButton("REPRODUZIR", primary = true, modifier = Modifier.focusRequester(first)) { actions.playMovie(detail.movie) }
-                HeroButton("VOLTAR", modifier = if (detail.movie == null) Modifier.focusRequester(first) else Modifier) { state.detail = null }
+                if (detail.movie != null) HeroButton(tr("REPRODUZIR", "PLAY"), primary = true, modifier = Modifier.focusRequester(first)) { actions.playMovie(detail.movie) }
+                HeroButton(tr("VOLTAR", "BACK"), modifier = if (detail.movie == null) Modifier.focusRequester(first) else Modifier) { state.detail = null }
             }
         }
         val episodes = d?.episodes.orEmpty()
@@ -265,7 +271,8 @@ private fun Episodes(show: Show, episodes: List<Episode>, actions: IptvActions) 
     val seasons = remember(episodes) { episodes.map { it.season }.distinct() }
     var season by remember(episodes) { mutableStateOf(seasons.first()) }
     Column(Modifier.offset(x = 192.dp, y = 640.dp).width(1664.dp).height(420.dp)) {
-        Tabs(seasons.map { s -> "Temporada $s" to episodes.count { it.season == s } }, "Temporada $season") { season = it.removePrefix("Temporada ").toInt() }
+        val word = tr("Temporada", "Season")
+        Tabs(seasons.map { s -> "$word $s" to episodes.count { it.season == s } }, "$word $season") { season = it.removePrefix("$word ").toInt() }
         LazyColumn(Modifier.border(1.dp, Line)) {
             items(episodes.filter { it.season == season }, key = { it.id }) { e ->
                 var focused by remember { mutableStateOf(false) }
@@ -294,11 +301,12 @@ fun SourcePage(state: LauncherState, actions: IptvActions) {
     var text by remember { mutableStateOf("") }
     var reveal by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { runCatching { first.requestFocus() } }
-    Page("00", "Fornecedor IPTV", "LIGAR FONTE", state.sourceLabel?.let { "ATUAL · ${it.uppercase()}" }) {
-        T("Uma conta Xtream ou qualquer lista M3U. Fica guardada só neste aparelho.", 28.sp, Soft, Serif)
-        T("URL DA CONTA OU DA LISTA", 11.sp, Dim, spacing = 0.3.em, modifier = Modifier.padding(top = 30.dp, bottom = 10.dp))
+    Page("00", tr("Fornecedor IPTV", "IPTV provider"), tr("LIGAR FONTE", "CONNECT SOURCE"), state.sourceLabel?.let { tr("ATUAL · ", "CURRENT · ") + it.uppercase() }) {
+        T(tr("Uma conta Xtream ou qualquer lista M3U. Fica guardada só neste aparelho.", "An Xtream account or any M3U playlist. It is stored only on this device."), 28.sp, Soft, Serif)
+        T(tr("URL DA CONTA OU DA LISTA", "ACCOUNT OR PLAYLIST URL"), 11.sp, Dim, spacing = 0.3.em, modifier = Modifier.padding(top = 30.dp, bottom = 10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
             var focused by remember { mutableStateOf(false) }
+            val focusManager = LocalFocusManager.current
             BasicTextField(
                 value = text,
                 onValueChange = { text = it; state.setupError = null },
@@ -310,23 +318,32 @@ fun SourcePage(state: LauncherState, actions: IptvActions) {
                 keyboardActions = KeyboardActions(onDone = { actions.saveSource(text) }),
                 modifier = Modifier.width(1100.dp).height(64.dp)
                     .focusRequester(first)
+                    // A text field keeps ▲/▼ for itself; on a TV remote they must move to the next control.
+                    .onPreviewKeyEvent { e ->
+                        if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                        when (e.nativeKeyEvent.keyCode) {
+                            android.view.KeyEvent.KEYCODE_DPAD_DOWN -> focusManager.moveFocus(FocusDirection.Down)
+                            android.view.KeyEvent.KEYCODE_DPAD_UP -> focusManager.moveFocus(FocusDirection.Up)
+                            else -> false
+                        }
+                    }
                     .onFocusChanged { focused = it.isFocused }
                     .background(Ink)
                     .border(if (focused) 2.dp else 1.dp, if (focused) Accent else Outline)
                     .padding(horizontal = 22.dp, vertical = 20.dp),
                 decorationBox = { inner ->
-                    if (text.isEmpty()) T("https://servidor.exemplo/get.php?username=…&password=…", 18.sp, Rule)
+                    if (text.isEmpty()) T(tr("https://servidor.exemplo/get.php?username=…&password=…", "https://server.example/get.php?username=…&password=…"), 18.sp, Rule)
                     inner()
                 },
             )
-            HeroButton(if (reveal) "OCULTAR" else "MOSTRAR") { reveal = !reveal }
+            HeroButton(if (reveal) tr("OCULTAR", "HIDE") else tr("MOSTRAR", "SHOW")) { reveal = !reveal }
         }
         state.setupError?.let { T(it, 14.sp, Color(0xFFFF5A4F), spacing = 0.04.em, maxLines = 2, modifier = Modifier.padding(top = 12.dp)) }
         Column(Modifier.padding(top = 26.dp).width(1100.dp).border(1.dp, Line)) {
             listOf(
-                "XTREAM" to "get.php?username=…&password=… ou utilizador:senha@servidor",
-                "LISTA M3U" to "qualquer endereço .m3u ou .m3u8",
-                "FICHEIRO" to "lista .m3u completa ou atalho .url, escolhido no aparelho",
+                "XTREAM" to tr("get.php?username=…&password=… ou utilizador:senha@servidor", "get.php?username=…&password=… or user:password@server"),
+                tr("LISTA M3U", "M3U PLAYLIST") to tr("qualquer endereço .m3u ou .m3u8", "any .m3u or .m3u8 address"),
+                tr("FICHEIRO", "FILE") to tr("lista .m3u completa ou atalho .url, escolhido no aparelho", "a whole .m3u playlist or a .url shortcut, chosen on the device"),
             ).forEachIndexed { i, (k, v) ->
                 Row(Modifier.fillMaxWidth().background(Ink).padding(horizontal = 22.dp, vertical = 14.dp)) {
                     T(k, 12.sp, Accent, weight = FontWeight.Bold, spacing = 0.24.em, modifier = Modifier.width(180.dp))
@@ -336,9 +353,16 @@ fun SourcePage(state: LauncherState, actions: IptvActions) {
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.padding(top = 30.dp)) {
-            HeroButton(if (state.setupBusy) "A LIGAR…" else "GUARDAR FONTE", primary = true) { if (!state.setupBusy) actions.saveSource(text) }
-            HeroButton("ESCOLHER FICHEIRO") { actions.pickSourceFile() }
-            if (state.sourceLabel != null) HeroButton("VOLTAR") { state.section = Section.INICIO }
+            HeroButton(if (state.setupBusy) tr("A LIGAR…", "CONNECTING…") else tr("GUARDAR FONTE", "SAVE SOURCE"), primary = true) { if (!state.setupBusy) actions.saveSource(text) }
+            HeroButton(tr("ESCOLHER FICHEIRO", "CHOOSE FILE")) { actions.pickSourceFile() }
+            if (state.sourceLabel != null) HeroButton(tr("VOLTAR", "BACK")) { state.section = Section.INICIO }
         }
+        // Language: the TV's (Portuguese, else English) or one chosen here.
+        T(tr("LÍNGUA", "LANGUAGE"), 11.sp, Dim, spacing = 0.3.em, modifier = Modifier.padding(top = 34.dp, bottom = 10.dp))
+        Tabs(
+            listOf(tr("Sistema", "System") to 0, "English" to 0, "Português" to 0),
+            when (I18n.choice) { Lang.SYSTEM -> tr("Sistema", "System"); Lang.EN -> "English"; Lang.PT -> "Português" },
+            counts = false,
+        ) { name -> actions.setLanguage(when (name) { "English" -> Lang.EN; "Português" -> Lang.PT; else -> Lang.SYSTEM }) }
     }
 }

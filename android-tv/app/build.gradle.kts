@@ -18,8 +18,8 @@ android {
         applicationId = "dev.lumina.atlas"
         minSdk = 28
         targetSdk = 34
-        versionCode = 4
-        versionName = "0.3.1"
+        versionCode = 5
+        versionName = "0.4.0"
         // Google TV boxes are ARM; keeps the FFmpeg audio decoders small.
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
     }

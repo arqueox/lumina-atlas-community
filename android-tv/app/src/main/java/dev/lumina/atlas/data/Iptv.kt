@@ -1,5 +1,7 @@
 package dev.lumina.atlas.data
 
+import dev.lumina.atlas.ui.tr
+import dev.lumina.atlas.ui.noChannelGroup
 import android.content.Context
 import android.net.Uri
 import java.io.File
@@ -24,7 +26,7 @@ data class Details(val plot: String, val backdrop: String, val year: String, val
 
 data class Catalog(val channels: List<Channel>, val movies: List<Movie>, val shows: List<Show>) {
     /** Channel groups in playlist order. */
-    val groups: List<String> get() = channels.map { it.group.ifBlank { "Canais" } }.distinct()
+    val groups: List<String> get() = channels.map { it.group.ifBlank { noChannelGroup() } }.distinct()
     companion object { val EMPTY = Catalog(emptyList(), emptyList(), emptyList()) }
 }
 
@@ -36,7 +38,7 @@ sealed class IptvSource {
     /** For the "Fonte atual" line: host and kind, never the credentials. */
     val label: String get() = when (this) {
         is Xtream -> (Uri.parse(base).host ?: base) + " · XTREAM"
-        is M3u -> (url?.let { Uri.parse(it).host } ?: "ficheiro") + " · LISTA M3U"
+        is M3u -> (url?.let { Uri.parse(it).host } ?: tr("ficheiro", "file")) + tr(" · LISTA M3U", " · M3U PLAYLIST")
     }
 
     companion object {
@@ -50,19 +52,19 @@ sealed class IptvSource {
             val isPlaylist = lines.firstOrNull()?.startsWith("#EXTM3U", true) == true || lines.any { it.startsWith("#EXTINF", true) }
             if (isPlaylist && shortcut == null) {
                 val first = lines.firstOrNull { it.startsWith("http://", true) || it.startsWith("https://", true) }
-                    ?: throw IllegalArgumentException("A lista M3U não contém endereços HTTP")
+                    ?: throw IllegalArgumentException(tr("A lista M3U não contém endereços HTTP", "The M3U playlist has no HTTP addresses"))
                 return xtreamFrom(first) ?: savedFile?.let { M3u(null, it) }
-                    ?: throw IllegalArgumentException("Escolhe a lista como ficheiro ou indica o seu URL")
+                    ?: throw IllegalArgumentException(tr("Escolhe a lista como ficheiro ou indica o seu URL", "Choose the playlist as a file or enter its URL"))
             }
             val raw = shortcut?.substring(4)?.trim()
                 ?: lines.firstOrNull { it.startsWith("http://", true) || it.startsWith("https://", true) }
-                ?: throw IllegalArgumentException("Indica um endereço http:// ou https://")
+                ?: throw IllegalArgumentException(tr("Indica um endereço http:// ou https://", "Enter an http:// or https:// address"))
             return xtreamFrom(raw) ?: M3u(raw, null)
         }
 
         private fun xtreamFrom(raw: String): Xtream? {
             val uri = Uri.parse(raw)
-            if (uri.scheme !in setOf("http", "https") || uri.host.isNullOrBlank()) throw IllegalArgumentException("Endereço inválido")
+            if (uri.scheme !in setOf("http", "https") || uri.host.isNullOrBlank()) throw IllegalArgumentException(tr("Endereço inválido", "Invalid address"))
             val path = (uri.path ?: "").trimEnd('/')
             val endpoint = Regex("/(get|player_api)\\.php$", RegexOption.IGNORE_CASE).containsMatchIn(path)
             val stream = Regex("^(.*)/(live|movie|series)/([^/]+)/([^/]+)/[^/]+$", RegexOption.IGNORE_CASE).find(path)
@@ -70,7 +72,7 @@ sealed class IptvSource {
             if (!endpoint && stream == null && !(info != null && path.isEmpty())) return null
             val user = uri.getQueryParameter("username") ?: info?.substringBefore(':')?.let(Uri::decode) ?: stream?.groupValues?.get(3)?.let(Uri::decode)
             val pass = uri.getQueryParameter("password") ?: info?.substringAfter(':', "")?.takeIf { it.isNotEmpty() }?.let(Uri::decode) ?: stream?.groupValues?.get(4)?.let(Uri::decode)
-            if (user.isNullOrBlank() || pass.isNullOrBlank()) throw IllegalArgumentException("O endereço Xtream não tem utilizador e palavra-passe")
+            if (user.isNullOrBlank() || pass.isNullOrBlank()) throw IllegalArgumentException(tr("O endereço Xtream não tem utilizador e palavra-passe", "The Xtream address has no username and password"))
             val prefix = if (endpoint) path.replace(Regex("/(get|player_api)\\.php$", RegexOption.IGNORE_CASE), "") else stream?.groupValues?.get(1).orEmpty()
             val port = if (uri.port > 0) ":${uri.port}" else ""
             return Xtream("${uri.scheme}://${uri.host}$port$prefix", user, pass)
@@ -120,7 +122,7 @@ private fun httpGet(url: String, timeoutMs: Int = 30_000): String {
     conn.readTimeout = timeoutMs
     conn.setRequestProperty("User-Agent", UA)
     try {
-        if (conn.responseCode !in 200..299) throw IllegalStateException("O fornecedor respondeu HTTP ${conn.responseCode}")
+        if (conn.responseCode !in 200..299) throw IllegalStateException(tr("O fornecedor respondeu HTTP ", "The provider answered HTTP ") + conn.responseCode)
         return conn.inputStream.bufferedReader().use { it.readText() }
     } finally {
         conn.disconnect()
