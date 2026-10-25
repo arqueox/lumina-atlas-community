@@ -9,3 +9,5 @@ A native Google TV launcher in the Noir design. It replaces the 0.1.0 WebView cl
 0.3.0 is signed with a new key: uninstall 0.1.0 before installing. It builds and installs on a Google TV Streamer 4K, but it has not yet been opened and tested there or with a range of providers, so this is a pre-release.
 
 SHA-256: `874ccb7c86dfaa490917d8178dc1ab0dea987a2463be3e67b05cc68c0d024820`
+
+**Use [0.3.1](https://github.com/arqueox/lumina-atlas-community/releases/tag/v0.3.1)**: this version cannot play (missing permission) or reach `http://` providers.
